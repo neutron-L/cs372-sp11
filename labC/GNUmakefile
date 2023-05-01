@@ -89,6 +89,6 @@ testSortedPoints.o: testSortedPoints.c
 	$(CC) $(CFLAGS) -c -o testSortedPoints.o testSortedPoints.c
 
 testSortedPoints: testSortedPoints.o point.o sortedPoints.o
-	$(CC) $(CFLAGS) -o testSortedPoints testSortedPoints.o point.o sortedPoints.o
+	$(CC) $(CFLAGS) -o testSortedPoints testSortedPoints.o point.o sortedPoints.o -lm
 
 
