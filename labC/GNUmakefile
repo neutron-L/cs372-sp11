@@ -74,7 +74,7 @@ fact.o: fact.c
 	$(CC) $(CFLAGS) -c -o fact.o fact.c
 
 testPoint: testPoint.o point.o
-	$(CC) $(CFLAGS) -o testPoint testPoint.o point.o
+	$(CC) $(CFLAGS) -o testPoint testPoint.o point.o -lm
 
 testPoint.o: testPoint.c point.h
 	$(CC) $(CFLAGS) -c -o testPoint.o testPoint.c

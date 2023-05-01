@@ -8,6 +8,8 @@ typedef struct SortedPointsStruct {
    * You can define this struct to have whatever
    * fields you want.
    */
+  Point * plist;
+  int length;
 } SortedPoints;
 
 SortedPoints *sp_init(SortedPoints *sp);

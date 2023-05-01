@@ -9,7 +9,10 @@
  * to the object.
  */
 SortedPoints *sp_init(SortedPoints *sp){
-  assert(0); // TBD
+  // assert(0); // TBD
+  sp->plist = NULL;
+  sp->length = 0;
+
   return sp;
 }
 
@@ -20,7 +23,8 @@ SortedPoints *sp_init(SortedPoints *sp){
  */
 int sp_addNewPoint(SortedPoints *sp, double x, double y)
 {
-  assert(0); // TBD
+  // assert(0); // TBD
+  
   return 0;
 }
 

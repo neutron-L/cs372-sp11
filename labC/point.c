@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <math.h>
 #include "point.h"
 
 /*
@@ -8,8 +9,8 @@
  */
 void point_translate(Point *p, double x, double y)
 {
-  printf("Your job is to implement translate\n");
-  assert(0);
+  p->x += x;
+  p->y += y;
 }
 
 /*
@@ -17,7 +18,7 @@ void point_translate(Point *p, double x, double y)
  */
 double point_distance(const Point *p1, const Point *p2)
 {
-  printf("Your job is to implement distance\n");
-  assert(0);
-  return -1.0;
+  double dx = p1->x - p2->x;
+  double dy = p1->y - p2->y;
+  return sqrt(dx * dx + dy * dy);
 }
