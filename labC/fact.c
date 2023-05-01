@@ -30,7 +30,7 @@ int main(int argc, char ** argv)
 	// check argument
 	int num;
 
-	if (argc < 2 || (num = translate(argv[1])) == -1)
+	if (argc < 2 || (num = translate(argv[1])) == -1 || num <= 0)
 		printf("Huh?\n");
 	else if (num > 12)
 		printf("Overflow\n");

@@ -2,13 +2,20 @@
 #define _SORTEDPOINTS_H_
 #include "point.h"
 
+typedef struct LNode
+{
+  Point point;
+  struct LNode * next;
+} LNode;
+
 
 typedef struct SortedPointsStruct {
   /*
    * You can define this struct to have whatever
    * fields you want.
    */
-  Point * plist;
+  LNode * head;
+  LNode * tail;
   int length;
 } SortedPoints;
 
