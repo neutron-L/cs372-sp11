@@ -10,6 +10,8 @@ typedef int Tid;
 
 typedef struct ThrdCtlBlk{
   /* ... Fill this in ... */
+  Tid tid;
+  ucontext_t ctx;
 } ThrdCtlBlk;
 
 
