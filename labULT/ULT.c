@@ -15,6 +15,8 @@ static Tid next_tid;
 
 static void stub(void (*root)(void *), void *arg);
 
+static void * schedule(void *);
+
 Tid 
 ULT_CreateThread(void (*fn)(void *), void *parg)
 {
@@ -40,9 +42,12 @@ ULT_CreateThread(void (*fn)(void *), void *parg)
   tcb->ctx.uc_mcontext.gregs[REG_RIP] = (greg_t)stub;
   tcb->ctx.uc_mcontext.gregs[REG_RDI] = (greg_t)fn;
   tcb->ctx.uc_mcontext.gregs[REG_RSI] = (greg_t)parg;
+  tcb->ctx.uc_mcontext.gregs[REG_RSP] = (greg_t)(stack.ss_sp + ULT_MIN_STACK - 8);
 
   tcb->tid = next_tid;
   ++next_tid;
+
+  setcontext(&tcb->ctx);
 
   return tcb->tid;
 }
@@ -69,7 +74,7 @@ stub(void (*root)(void *), void *arg)
   // thread starts here
   Tid ret;
   root(arg); // call root function
-  ret = ULT_DestroyThread(ULT_SELF)
+  ret = ULT_DestroyThread(ULT_SELF);
   assert(ret == ULT_NONE); // we should only get here if we are the last thread.
   exit(0); // all threads are done, so process should exit
 }
