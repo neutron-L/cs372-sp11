@@ -18,6 +18,11 @@ static Tid next_tid;
 
 static void stub(void (*root)(void *), void *arg);
 
+/* 针对ult库接口的队列查找函数，会将线程tid轮转调整到队首，用于destroy或yield接口
+   基本是不断pop + push + 判度当前队首，操作时间比较长
+   可以考虑为queue添加一个search和remove push front的接口
+ */
+static bool ULT_Search(ult_queue_t queue, Tid tid);
 static void ULT_Init();
 static void swtch(ThrdCtlBlk *, ThrdCtlBlk *);
 static void *schedule(void *);
@@ -73,12 +78,8 @@ Tid ULT_Yield(Tid wantTid) {
         return (wantTid == ULT_ANY) ? ULT_NONE : ULT_INVALID;
     }
 
-    if (wantTid != ULT_ANY) {
-        int size = ult_queue_size(ready_queue);
-        while (ult_queue_front(ready_queue)->tid != wantTid && size-- > 0) {
-            ThrdCtlBlk *tcb = ult_dequeue(ready_queue);
-            ult_enqueue(ready_queue, tcb);
-        }
+    if (wantTid != ULT_ANY && !ULT_Search(ready_queue, wantTid)) {
+        return ULT_NONE;
     }
     ret = ult_queue_front(ready_queue)->tid;
 
@@ -89,7 +90,14 @@ Tid ULT_Yield(Tid wantTid) {
 Tid ULT_DestroyThread(Tid tid) {
     ULT_Init();
 
-    assert(0); /* TBD */
+    // assert(0); /* TBD */
+    if (tid == ULT_SELF) {
+        running_thread->state = TERMINATED;
+        swtch(running_thread, scheduler);
+    } else if (tid == ULT_ANY) {
+        tid = ult_queue_front(ready_queue)->tid;
+    }
+
     return ULT_FAILED;
 }
 
@@ -101,6 +109,16 @@ stub(void (*root)(void *), void *arg) {
     ret = ULT_DestroyThread(ULT_SELF);
     assert(ret == ULT_NONE); // we should only get here if we are the last thread.
     exit(0);                 // all threads are done, so process should exit
+}
+
+static bool ULT_Search(ult_queue_t queue, Tid wantTid) {
+    int size = ult_queue_size(queue);
+    while (size-- > 0 && ult_queue_front(queue)->tid != wantTid) {
+        ThrdCtlBlk *tcb = ult_dequeue(queue);
+        ult_enqueue(ready_queue, tcb);
+    }
+
+    return size >= 0;
 }
 
 static void ULT_Init() {
