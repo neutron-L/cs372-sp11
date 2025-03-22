@@ -97,18 +97,28 @@ Tid ULT_Yield(Tid wantTid) {
         return (wantTid == ULT_ANY) ? ULT_NONE : ULT_INVALID;
     }
 
-    if (wantTid != ULT_ANY && !ULT_Search(ready_queue, wantTid)) {
-        return ULT_INVALID;
-    }
-    if (ult_queue_front(ready_queue)->state != RUNNABLE) {
-        return ULT_INVALID;
-    }
-    ret = ult_queue_front(ready_queue)->tid;
     if (wantTid != ULT_ANY) {
-        assert(ret == wantTid);
+        if (!ULT_Search(ready_queue, wantTid)) {
+            return ULT_INVALID;
+        }
+        if (ult_queue_front(ready_queue)->state == RUNNABLE) {
+            ret = ult_queue_front(ready_queue)->tid;
+            swtch(running_thread, scheduler);
+        }
+    } else {
+        // 找到第一个非退出线程
+        ThrdCtlBlk *tcb = NULL;
+        int size = ult_queue_size(ready_queue);
+        while (size-- > 0 && ult_queue_front(ready_queue)->state != RUNNABLE) {
+            ult_enqueue(ready_queue, ult_dequeue(ready_queue));
+        }
+
+        if (size < 0) {
+            return ULT_NONE;
+        }
+        swtch(running_thread, scheduler);
     }
 
-    swtch(running_thread, scheduler);
     // 切换到scheduler
     return ret;
 }
@@ -123,12 +133,24 @@ Tid ULT_DestroyThread(Tid tid) {
         printf("%d destroy %d\n", running_thread->tid, next_tid);
         swtch(running_thread, scheduler);
     } else if (tid == ULT_ANY) {
-        if (ult_queue_is_empty(ready_queue)) {
+        // 只剩下当前running线程和scheduler
+        if (thread_num == 1 + 1) {
             return ULT_NONE;
         }
+
+        // 找到第一个非退出线程
+        ThrdCtlBlk *tcb = NULL;
+        int size = ult_queue_size(ready_queue);
+        while (size-- > 0 && ult_queue_front(ready_queue)->state == TERMINATED) {
+            ult_enqueue(ready_queue, ult_dequeue(ready_queue));
+        }
+
         tid = ult_queue_front(ready_queue)->tid;
     }
     if (!ULT_Search(ready_queue, tid)) {
+        return ULT_INVALID;
+    }
+    if (ult_queue_front(ready_queue)->state == TERMINATED) {
         return ULT_INVALID;
     }
     ult_queue_front(ready_queue)->state = TERMINATED;
