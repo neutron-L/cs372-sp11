@@ -79,10 +79,11 @@ Tid ULT_Yield(Tid wantTid) {
     }
 
     if (wantTid != ULT_ANY && !ULT_Search(ready_queue, wantTid)) {
-        return ULT_NONE;
+        return ULT_INVALID;
     }
     ret = ult_queue_front(ready_queue)->tid;
 
+    swtch(running_thread, scheduler);
     // 切换到scheduler
     return ret;
 }
@@ -95,8 +96,16 @@ Tid ULT_DestroyThread(Tid tid) {
         running_thread->state = TERMINATED;
         swtch(running_thread, scheduler);
     } else if (tid == ULT_ANY) {
+        if (ult_queue_is_empty(ready_queue)) {
+            return ULT_NONE;
+        }
         tid = ult_queue_front(ready_queue)->tid;
     }
+    if (!ULT_Search(ready_queue, tid)) {
+        return ULT_INVALID;
+    }
+    ult_queue_front(ready_queue)->state = TERMINATED;
+    swtch(running_thread, scheduler);
 
     return ULT_FAILED;
 }
