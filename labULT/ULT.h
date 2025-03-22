@@ -11,6 +11,7 @@ typedef int Tid;
 typedef struct ThrdCtlBlk{
   /* ... Fill this in ... */
   Tid tid;
+  int swtch_flag;
   ucontext_t ctx;
 } ThrdCtlBlk;
 
@@ -45,6 +46,3 @@ Tid ULT_DestroyThread(Tid tid);
 
 
 #endif
-
-
-
