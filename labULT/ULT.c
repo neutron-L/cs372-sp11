@@ -6,11 +6,11 @@
 #endif /* __USE_GNU */
 
 #include <assert.h>
+#include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <ucontext.h>
-#include <stdio.h>
-#include <errno.h>
 
 #include "ULT.h"
 #include "ult_queue.h"
@@ -38,7 +38,7 @@ Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
 
     // +1是因为我们额外创建了一个scheduler线程
     if (thread_num >= ULT_MAX_THREADS + 1) {
-      return ULT_NOMORE;
+        return ULT_NOMORE;
     }
     ThrdCtlBlk *tcb = NULL;
     stack_t stack;
@@ -69,11 +69,11 @@ Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
         // 初始时，main thread为当前running thread，随后由scheduler加入队列
         ult_enqueue(ready_queue, tcb);
     } else {
-      // 默认传入func为null的是初始化时创建main thread
-      if (running_thread != NULL) {
-        return ULT_INVALID;
-      }
-      running_thread = tcb;
+        // 默认传入func为null的是初始化时创建main thread
+        if (running_thread != NULL) {
+            return ULT_INVALID;
+        }
+        running_thread = tcb;
     }
 
     tcb->tid = next_tid;
@@ -100,7 +100,13 @@ Tid ULT_Yield(Tid wantTid) {
     if (wantTid != ULT_ANY && !ULT_Search(ready_queue, wantTid)) {
         return ULT_INVALID;
     }
+    if (ult_queue_front(ready_queue)->state != RUNNABLE) {
+        return ULT_INVALID;
+    }
     ret = ult_queue_front(ready_queue)->tid;
+    if (wantTid != ULT_ANY) {
+        assert(ret == wantTid);
+    }
 
     swtch(running_thread, scheduler);
     // 切换到scheduler
@@ -113,7 +119,8 @@ Tid ULT_DestroyThread(Tid tid) {
     // assert(0); /* TBD */
     if (tid == ULT_SELF) {
         running_thread->state = TERMINATED;
-      --thread_num;
+        --thread_num;
+        printf("%d destroy %d\n", running_thread->tid, next_tid);
         swtch(running_thread, scheduler);
     } else if (tid == ULT_ANY) {
         if (ult_queue_is_empty(ready_queue)) {
@@ -126,7 +133,6 @@ Tid ULT_DestroyThread(Tid tid) {
     }
     ult_queue_front(ready_queue)->state = TERMINATED;
     --thread_num;
-    swtch(running_thread, scheduler);
 
     return tid;
 }
@@ -171,6 +177,7 @@ static void ULT_Init() {
 }
 
 static void ULT_DeleteThread(ThrdCtlBlk *tcb) {
+    printf("%d free\n", tcb->tid);
     free(tcb->ctx.uc_stack.ss_sp);
     free(tcb);
 }
