@@ -4,10 +4,13 @@
 #ifndef __USE_GNU
 #define __USE_GNU
 #endif /* __USE_GNU */
+
 #include <assert.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <ucontext.h>
+#include <stdio.h>
+#include <errno.h>
 
 #include "ULT.h"
 #include "ult_queue.h"
@@ -15,6 +18,7 @@
 static ult_queue_t ready_queue;
 static ThrdCtlBlk *running_thread, *scheduler;
 static Tid next_tid;
+static size_t thread_num;
 
 static void stub(void (*root)(void *), void *arg);
 
@@ -26,12 +30,16 @@ static bool ULT_Search(ult_queue_t queue, Tid tid);
 static void ULT_Init();
 static void ULT_DeleteThread(ThrdCtlBlk *);
 static void swtch(ThrdCtlBlk *, ThrdCtlBlk *);
-static void *schedule(void *);
+static void schedule(void *);
 
 Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
     // assert(0); /* TBD */
     ULT_Init();
 
+    // +1是因为我们额外创建了一个scheduler线程
+    if (thread_num >= ULT_MAX_THREADS + 1) {
+      return ULT_NOMORE;
+    }
     ThrdCtlBlk *tcb = NULL;
     stack_t stack;
     if ((tcb = (ThrdCtlBlk *)calloc(1, sizeof(ThrdCtlBlk))) == NULL) {
@@ -53,10 +61,13 @@ Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
         tcb->ctx.uc_stack = stack;
         tcb->ctx.uc_link = NULL;
         // makecontext(&tcb->ctx, (void (*)(void))fn, 1, parg); may not use this
-        tcb->ctx.uc_mcontext.__gregs[REG_RIP] = (greg_t)stub;
-        tcb->ctx.uc_mcontext.__gregs[REG_RDI] = (greg_t)fn;
-        tcb->ctx.uc_mcontext.__gregs[REG_RSI] = (greg_t)parg;
-        tcb->ctx.uc_mcontext.__gregs[REG_RSP] = (greg_t)(stack.ss_sp + ULT_MIN_STACK - 8);
+        tcb->ctx.uc_mcontext.gregs[REG_RIP] = (greg_t)stub;
+        tcb->ctx.uc_mcontext.gregs[REG_RDI] = (greg_t)fn;
+        tcb->ctx.uc_mcontext.gregs[REG_RSI] = (greg_t)parg;
+        tcb->ctx.uc_mcontext.gregs[REG_RSP] = (greg_t)(stack.ss_sp + ULT_MIN_STACK - 8);
+
+        // 初始时，main thread为当前running thread，随后由scheduler加入队列
+        ult_enqueue(ready_queue, tcb);
     } else {
       // 默认传入func为null的是初始化时创建main thread
       if (running_thread != NULL) {
@@ -68,6 +79,7 @@ Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
     tcb->tid = next_tid;
     tcb->state = RUNNABLE;
     ++next_tid;
+    ++thread_num;
 
     return tcb->tid;
 }
@@ -78,7 +90,7 @@ Tid ULT_Yield(Tid wantTid) {
     // assert(0); /* TBD */
     Tid ret = ULT_INVALID;
     // 当前线程负责将wantTid的线程调整到队首
-    if (wantTid == ULT_SELF) {
+    if (wantTid == ULT_SELF || wantTid == running_thread->tid) {
         return running_thread->tid;
     }
     if (ult_queue_is_empty(ready_queue)) {
@@ -101,6 +113,7 @@ Tid ULT_DestroyThread(Tid tid) {
     // assert(0); /* TBD */
     if (tid == ULT_SELF) {
         running_thread->state = TERMINATED;
+      --thread_num;
         swtch(running_thread, scheduler);
     } else if (tid == ULT_ANY) {
         if (ult_queue_is_empty(ready_queue)) {
@@ -112,9 +125,10 @@ Tid ULT_DestroyThread(Tid tid) {
         return ULT_INVALID;
     }
     ult_queue_front(ready_queue)->state = TERMINATED;
+    --thread_num;
     swtch(running_thread, scheduler);
 
-    return ULT_FAILED;
+    return tid;
 }
 
 static void
@@ -151,6 +165,8 @@ static void ULT_Init() {
     assert(ULT_isOKRet(ULT_CreateThread(NULL, NULL)) && running_thread != NULL);
     assert(ULT_isOKRet(ULT_CreateThread(schedule, NULL))); // 这里有点奇怪，内部还会调用一次init，只不过什么也不做
 
+    scheduler = ult_dequeue(ready_queue);
+    assert(ult_queue_is_empty(ready_queue));
     swtch(running_thread, scheduler);
 }
 
@@ -174,13 +190,14 @@ static void swtch(ThrdCtlBlk *tcb1, ThrdCtlBlk *tcb2) {
     }
 }
 
-static void *schedule(void *_) {
+static void schedule(void *_) {
     (void)_;
     ThrdCtlBlk *tcb = NULL;
 
     while (true) {
         ult_enqueue(ready_queue, running_thread);
 
+        tcb = NULL;
         // 在这里实际销毁退出线程
         while (!ult_queue_is_empty(ready_queue) && (tcb = ult_dequeue(ready_queue)) && tcb->state == TERMINATED) {
             ULT_DeleteThread(tcb);
