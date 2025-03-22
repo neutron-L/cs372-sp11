@@ -57,6 +57,12 @@ Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
         tcb->ctx.uc_mcontext.__gregs[REG_RDI] = (greg_t)fn;
         tcb->ctx.uc_mcontext.__gregs[REG_RSI] = (greg_t)parg;
         tcb->ctx.uc_mcontext.__gregs[REG_RSP] = (greg_t)(stack.ss_sp + ULT_MIN_STACK - 8);
+    } else {
+      // 默认传入func为null的是初始化时创建main thread
+      if (running_thread != NULL) {
+        return ULT_INVALID;
+      }
+      running_thread = tcb;
     }
 
     tcb->tid = next_tid;
@@ -141,10 +147,11 @@ static void ULT_Init() {
 
     // 将当前thread(main thread)初始化并赋值running thread
     // main thread 得到tid 0
-    running_thread = ULT_CreateThread(NULL, NULL);
-
     ready_queue = ult_new_queue();
-    scheduler = ULT_CreateThread(schedule, NULL); // 这里有点奇怪，内部还会调用一次init，只不过什么也不做
+    assert(ULT_isOKRet(ULT_CreateThread(NULL, NULL)) && running_thread != NULL);
+    assert(ULT_isOKRet(ULT_CreateThread(schedule, NULL))); // 这里有点奇怪，内部还会调用一次init，只不过什么也不做
+
+    swtch(running_thread, scheduler);
 }
 
 static void ULT_DeleteThread(ThrdCtlBlk *tcb) {
