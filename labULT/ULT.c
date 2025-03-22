@@ -130,9 +130,11 @@ Tid ULT_DestroyThread(Tid tid) {
     if (tid == ULT_SELF) {
         running_thread->state = TERMINATED;
         --thread_num;
-        printf("%d destroy %d\n", running_thread->tid, next_tid);
         swtch(running_thread, scheduler);
-    } else if (tid == ULT_ANY) {
+        // 如果是最后一个线程，则会被schedule调度回来
+        return ULT_NONE;
+    } 
+    if (tid == ULT_ANY) {
         // 只剩下当前running线程和scheduler
         if (thread_num == 1 + 1) {
             return ULT_NONE;
@@ -199,7 +201,6 @@ static void ULT_Init() {
 }
 
 static void ULT_DeleteThread(ThrdCtlBlk *tcb) {
-    printf("%d free\n", tcb->tid);
     free(tcb->ctx.uc_stack.ss_sp);
     free(tcb);
 }
@@ -232,7 +233,7 @@ static void schedule(void *_) {
             ULT_DeleteThread(tcb);
         }
 
-        if (tcb) {
+        if (tcb || (ult_queue_size(ready_queue) == 1)) {
             running_thread = tcb;
             swtch(scheduler, running_thread);
         }
