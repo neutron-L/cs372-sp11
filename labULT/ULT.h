@@ -7,10 +7,16 @@ typedef int Tid;
 #define ULT_MIN_STACK 32768
 
 
+typedef enum {
+  RUNNABLE,
+  TERMINATED,
+}ThrdState;
+
 
 typedef struct ThrdCtlBlk{
   /* ... Fill this in ... */
   Tid tid;
+  ThrdState state;
   int swtch_flag;
   ucontext_t ctx;
 } ThrdCtlBlk;

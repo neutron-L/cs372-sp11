@@ -54,6 +54,7 @@ Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
     }
 
     tcb->tid = next_tid;
+    tcb->state = RUNNABLE;
     ++next_tid;
 
     return tcb->tid;
@@ -139,7 +140,9 @@ static void *schedule(void *_) {
     while (true) {
         ult_enqueue(ready_queue, running_thread);
         ThrdCtlBlk *tcb = ult_dequeue(ready_queue);
+
+        // TODO 在这里实际销毁退出线程
         running_thread = tcb;
-        setcontext(&running_thread->ctx);
+        swtch(scheduler, running_thread);
     }
 }
