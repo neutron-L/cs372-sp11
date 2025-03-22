@@ -24,6 +24,7 @@ static void stub(void (*root)(void *), void *arg);
  */
 static bool ULT_Search(ult_queue_t queue, Tid tid);
 static void ULT_Init();
+static void ULT_DeleteThread(ThrdCtlBlk *);
 static void swtch(ThrdCtlBlk *, ThrdCtlBlk *);
 static void *schedule(void *);
 
@@ -146,6 +147,11 @@ static void ULT_Init() {
     scheduler = ULT_CreateThread(schedule, NULL); // 这里有点奇怪，内部还会调用一次init，只不过什么也不做
 }
 
+static void ULT_DeleteThread(ThrdCtlBlk *tcb) {
+    free(tcb->ctx.uc_stack.ss_sp);
+    free(tcb);
+}
+
 static void swtch(ThrdCtlBlk *tcb1, ThrdCtlBlk *tcb2) {
     tcb1->swtch_flag = 1;
     // 保存当前上下文到 oucp
@@ -163,13 +169,19 @@ static void swtch(ThrdCtlBlk *tcb1, ThrdCtlBlk *tcb2) {
 
 static void *schedule(void *_) {
     (void)_;
+    ThrdCtlBlk *tcb = NULL;
 
     while (true) {
         ult_enqueue(ready_queue, running_thread);
-        ThrdCtlBlk *tcb = ult_dequeue(ready_queue);
 
-        // TODO 在这里实际销毁退出线程
-        running_thread = tcb;
-        swtch(scheduler, running_thread);
+        // 在这里实际销毁退出线程
+        while (!ult_queue_is_empty(ready_queue) && (tcb = ult_dequeue(ready_queue)) && tcb->state == TERMINATED) {
+            ULT_DeleteThread(tcb);
+        }
+
+        if (tcb) {
+            running_thread = tcb;
+            swtch(scheduler, running_thread);
+        }
     }
 }
