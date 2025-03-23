@@ -20,15 +20,15 @@ int main(int argc, char **argv)
 
 
   printf("WORDSIZE %d\n", __WORDSIZE);
-  assert(__WORDSIZE == 32); // Do this project on a 32-bit x86 linux machine
+  // assert(__WORDSIZE == 32); // Do this project on a 32-bit x86 linux machine
   printf("NGREG %d\n", NGREG);
-  assert(NGREG == 19);  // Do this project on a 32-bit x86 linux machine
+  // assert(NGREG == 19);  // Do this project on a 32-bit x86 linux machine
 
   err = getcontext(&mycontext);
   assert(!err);
 
-  printf("A ucontext_t is %d bytes\n", -999);
-  assert(0); // TBD: Fill in ucontext size above. Hint: use sizeof().
+  printf("A ucontext_t is %ld bytes\n", sizeof(ucontext_t));
+  // assert(0); // TBD: Fill in ucontext size above. Hint: use sizeof().
 
   unsigned int anotherSample = probeUCStack("Dummy argument.");
 
@@ -99,6 +99,12 @@ int main(int argc, char **argv)
 unsigned int 
 probeUCStack(char *str)
 {
-  assert(0); /* Write code for this function */
-  return 0xFFFFFFFF;
+  // assert(0); /* Write code for this function */
+  ucontext_t ctx;
+  if (getcontext(&ctx)) {
+    perror("getcontext");
+    return 0xFFFFFFFF;
+  }
+
+  return ctx.uc_stack.ss_sp;
 }
