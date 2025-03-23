@@ -6,6 +6,7 @@
 #include <ucontext.h>
 #include <unistd.h>
 #include "interrupt.h"
+#include "ULT.h"
 static const int SIGNAL_TYPE = SIGALRM;
 
 static void setAlarm();
@@ -119,6 +120,7 @@ interruptHandler(int sig, siginfo_t *sip, void *contextVP)
   /* 
    * Your code here 
    */
+  ULT_Yield(ULT_ANY);
 
   return;
 }
