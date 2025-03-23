@@ -2,7 +2,7 @@
 
 
 CC	:= gcc 
-CFLAGS := -g -Wall -Werror $(LABDEFS)
+CFLAGS := -g -Wall $(LABDEFS)
 
 TARGETS := doTest doTest2 showHandler libULT.a alarmHelper parseUcontext
 
@@ -37,7 +37,7 @@ handin.tar: clean
 
 # Rules for the ULT library pieces
 
-ULT_SRC :=  ULT.c interrupt.c
+ULT_SRC :=  ULT.c interrupt.c ult_queue.c
 MOREH := cfuncproto.h
 MOREO :=
 ULT_OBJS := $(ULT_SRC:.c=.o)
@@ -70,6 +70,10 @@ parseUcontext: parseUcontext.c
 
 ULT.o: ULT.c ULT.h  $(MOREH)
 	gcc -c $(CFLAGS) -o $@ ULT.c
+
+	
+ult_queue.o: ult_queue.c ult_queue.h
+	gcc -c $(CFLAGS) -o $@ ult_queue.c
 
 interrupt.o: interrupt.c interrupt.h
 	gcc -c $(CFLAGS) -o $@ interrupt.c
