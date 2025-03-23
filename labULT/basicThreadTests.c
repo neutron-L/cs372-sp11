@@ -137,7 +137,7 @@ void basicThreadTests()
     assert(ULT_isOKRet(ret));
   }
   for(ii = 0; ii < ULT_MAX_THREADS; ii++){
-    ret = ULT_Yield(ii);
+    ret = ULT_Yield(ULT_ANY);
   }
   printf("Trying some destroys even though I'm the only thread\n");
   ret = ULT_DestroyThread(ULT_ANY);
