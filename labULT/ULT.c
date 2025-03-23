@@ -13,6 +13,7 @@
 #include <ucontext.h>
 
 #include "ULT.h"
+#include "interrupt.h"
 #include "ult_queue.h"
 
 static ult_queue_t ready_queue;
@@ -34,23 +35,30 @@ static void schedule(void *);
 
 Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
     // assert(0); /* TBD */
+    interruptsOff();
+
     ULT_Init();
+
+    Tid ret = ULT_INVALID;
 
     // +1是因为我们额外创建了一个scheduler线程
     if (thread_num >= ULT_MAX_THREADS + 1) {
-        return ULT_NOMORE;
+        ret = ULT_NOMORE;
+        goto end;
     }
     ThrdCtlBlk *tcb = NULL;
     stack_t stack;
     if ((tcb = (ThrdCtlBlk *)calloc(1, sizeof(ThrdCtlBlk))) == NULL) {
-        return ULT_NOMEMORY;
+        ret = ULT_NOMEMORY;
+        goto end;
     }
 
     if (fn != NULL) {
 
         if ((stack.ss_sp = malloc(ULT_MIN_STACK)) == NULL) {
             free(tcb);
-            return ULT_NOMEMORY;
+            ret = ULT_NOMEMORY;
+            goto end;
         }
         stack.ss_size = ULT_MIN_STACK;
         stack.ss_flags = 0;
@@ -66,12 +74,17 @@ Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
         tcb->ctx.uc_mcontext.gregs[REG_RSI] = (greg_t)parg;
         tcb->ctx.uc_mcontext.gregs[REG_RSP] = (greg_t)(stack.ss_sp + ULT_MIN_STACK - 8);
 
+        // 此时上下文中信号是阻塞的，必须清空
+        assert(sigismember(&tcb->ctx.uc_sigmask, SIGALRM));
+        sigemptyset(&tcb->ctx.uc_sigmask);
+
         // 初始时，main thread为当前running thread，随后由scheduler加入队列
         ult_enqueue(ready_queue, tcb);
     } else {
         // 默认传入func为null的是初始化时创建main thread
         if (running_thread != NULL) {
-            return ULT_INVALID;
+            ret = ULT_INVALID;
+            goto end;
         }
         running_thread = tcb;
     }
@@ -80,51 +93,69 @@ Tid ULT_CreateThread(void (*fn)(void *), void *parg) {
     tcb->state = RUNNABLE;
     ++next_tid;
     ++thread_num;
+    ret = tcb->tid;
 
-    return tcb->tid;
+end:
+    interruptsOn();
+    return ret;
 }
 
+
 Tid ULT_Yield(Tid wantTid) {
+    interruptsOff();
+
     ULT_Init();
 
     // assert(0); /* TBD */
-    Tid ret = ULT_INVALID;
+    Tid ret = wantTid;
     // 当前线程负责将wantTid的线程调整到队首
     if (wantTid == ULT_SELF || wantTid == running_thread->tid) {
-        return running_thread->tid;
+        ret = running_thread->tid;
+        goto end;
     }
     if (ult_queue_is_empty(ready_queue)) {
-        return (wantTid == ULT_ANY) ? ULT_NONE : ULT_INVALID;
+        ret = (wantTid == ULT_ANY) ? ULT_NONE : ULT_INVALID;
+        goto end;
     }
 
     if (wantTid != ULT_ANY) {
         if (!ULT_Search(ready_queue, wantTid)) {
-            return ULT_INVALID;
+            ret = ULT_INVALID;
+            goto end;
         }
         if (ult_queue_front(ready_queue)->state == RUNNABLE) {
             ret = ult_queue_front(ready_queue)->tid;
             swtch(running_thread, scheduler);
+        } else {
+            ret = ULT_INVALID;
+            goto end;
         }
     } else {
         // 找到第一个非退出线程
-        ThrdCtlBlk *tcb = NULL;
         int size = ult_queue_size(ready_queue);
         while (size-- > 0 && ult_queue_front(ready_queue)->state != RUNNABLE) {
             ult_enqueue(ready_queue, ult_dequeue(ready_queue));
         }
 
         if (size < 0) {
-            return ULT_NONE;
+            ret = ULT_NONE;
+            goto end;
         }
+        ret = ult_queue_front(ready_queue)->tid;
         swtch(running_thread, scheduler);
     }
 
-    // 切换到scheduler
+end:
+    interruptsOn();
     return ret;
-}
+}    
 
 Tid ULT_DestroyThread(Tid tid) {
+    interruptsOff();
+
     ULT_Init();
+
+    Tid ret = ULT_INVALID;
 
     // assert(0); /* TBD */
     if (tid == ULT_SELF) {
@@ -132,16 +163,17 @@ Tid ULT_DestroyThread(Tid tid) {
         --thread_num;
         swtch(running_thread, scheduler);
         // 如果是最后一个线程，则会被schedule调度回来
-        return ULT_NONE;
+        ret = ULT_NONE;
+        goto end;
     } 
     if (tid == ULT_ANY) {
         // 只剩下当前running线程和scheduler
         if (thread_num == 1 + 1) {
-            return ULT_NONE;
+            ret = ULT_NONE;
+            goto end;
         }
 
         // 找到第一个非退出线程
-        ThrdCtlBlk *tcb = NULL;
         int size = ult_queue_size(ready_queue);
         while (size-- > 0 && ult_queue_front(ready_queue)->state == TERMINATED) {
             ult_enqueue(ready_queue, ult_dequeue(ready_queue));
@@ -150,15 +182,19 @@ Tid ULT_DestroyThread(Tid tid) {
         tid = ult_queue_front(ready_queue)->tid;
     }
     if (!ULT_Search(ready_queue, tid)) {
-        return ULT_INVALID;
+        ret = ULT_INVALID;
+        goto end;
     }
     if (ult_queue_front(ready_queue)->state == TERMINATED) {
-        return ULT_INVALID;
+        ret = ULT_INVALID;
+        goto end;
     }
     ult_queue_front(ready_queue)->state = TERMINATED;
     --thread_num;
-
-    return tid;
+    ret = tid;
+end:
+    interruptsOn();
+    return ret;
 }
 
 static void
@@ -189,6 +225,8 @@ static void ULT_Init() {
     }
     inited = true;
 
+
+    // registerHandler();
     // 将当前thread(main thread)初始化并赋值running thread
     // main thread 得到tid 0
     ready_queue = ult_new_queue();
@@ -197,6 +235,11 @@ static void ULT_Init() {
 
     scheduler = ult_dequeue(ready_queue);
     assert(ult_queue_is_empty(ready_queue));
+
+    // scheduler需要屏蔽信号
+    sigemptyset(&scheduler->ctx.uc_sigmask);
+    sigaddset(&scheduler->ctx.uc_sigmask, SIGALRM);
+    
     swtch(running_thread, scheduler);
 }
 
@@ -206,7 +249,7 @@ static void ULT_DeleteThread(ThrdCtlBlk *tcb) {
 }
 
 static void swtch(ThrdCtlBlk *tcb1, ThrdCtlBlk *tcb2) {
-    volatile swtch_flag = 1;
+    volatile int swtch_flag = 1;
     // 保存当前上下文到 oucp
     if (getcontext(&tcb1->ctx) == -1) {
         perror("getcontext");
@@ -223,8 +266,13 @@ static void swtch(ThrdCtlBlk *tcb1, ThrdCtlBlk *tcb2) {
 static void schedule(void *_) {
     (void)_;
     ThrdCtlBlk *tcb = NULL;
+    ucontext_t ctx;
 
     while (true) {
+      // 检查信号
+      getcontext(&ctx);
+      assert(sigismember(&ctx.uc_sigmask, SIGALRM) && sigismember(&scheduler->ctx.uc_sigmask, SIGALRM));
+
         ult_enqueue(ready_queue, running_thread);
 
         tcb = NULL;
@@ -235,6 +283,7 @@ static void schedule(void *_) {
 
         if (tcb || (ult_queue_size(ready_queue) == 1)) {
             running_thread = tcb;
+            // printf("switch to %d\n", tcb->tid);
             swtch(scheduler, running_thread);
         }
     }
