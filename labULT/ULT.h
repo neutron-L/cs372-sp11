@@ -17,7 +17,6 @@ typedef struct ThrdCtlBlk{
   /* ... Fill this in ... */
   Tid tid;
   ThrdState state;
-  int swtch_flag;
   ucontext_t ctx;
 } ThrdCtlBlk;
 

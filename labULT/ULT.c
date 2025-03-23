@@ -206,14 +206,14 @@ static void ULT_DeleteThread(ThrdCtlBlk *tcb) {
 }
 
 static void swtch(ThrdCtlBlk *tcb1, ThrdCtlBlk *tcb2) {
-    tcb1->swtch_flag = 1;
+    volatile swtch_flag = 1;
     // 保存当前上下文到 oucp
     if (getcontext(&tcb1->ctx) == -1) {
         perror("getcontext");
     }
     // 切换到目标上下文 ucp
-    if (tcb1->swtch_flag) {
-        tcb2->swtch_flag = 0;
+    if (swtch_flag) {
+        swtch_flag = 0;
         if (setcontext(&tcb2->ctx) == -1) {
             perror("setcontext");
         }
