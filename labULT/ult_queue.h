@@ -22,6 +22,10 @@ ult_queue_t ult_new_queue();
 /* Destroy the given queue. Asserts that the queue is empty. */
 void ult_free_queue(ult_queue_t queue);
 
+
+/* 获取队首tcb */
+ThrdCtlBlk* ult_queue_front(ult_queue_t queue);
+
 /* Add the given thread to the end of the queue */
 void ult_enqueue(ult_queue_t queue, ThrdCtlBlk* tcb);
 

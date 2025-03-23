@@ -1,5 +1,3 @@
-#include <config.h>
-
 #include <stdlib.h>
 #include <assert.h>
 #ifdef HAVE_PTHREAD_H
@@ -62,6 +60,10 @@ void ult_free_queue(ult_queue_t queue) {
   free(queue);
 }
 
+/* 获取队首tcb */
+ThrdCtlBlk* ult_queue_front(ult_queue_t queue) {
+  return (queue->size == 0) ? NULL : queue->head->tcb;
+}
 /* Add the given thread to the end of the queue */
 void ult_enqueue(ult_queue_t queue, ThrdCtlBlk* tcb) {
   ult_queue_elem_t elem;
