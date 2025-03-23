@@ -6,7 +6,23 @@
 #include <unistd.h>
 
 // 定义两个用户上下文
-ucontext_t ctx1, ctx2;
+ucontext_t main_ctx, ctx1, ctx2;
+
+
+void swtch(ucontext_t *ctx1, ucontext_t *ctx2) {
+    volatile int flag = 1;
+    // 保存当前上下文到 oucp
+    if (getcontext(ctx1) == -1) {
+        perror("getcontext");
+    }
+    // 切换到目标上下文 ucp
+    if (flag) {
+        flag = 0;
+        if (setcontext(ctx2) == -1) {
+            perror("setcontext");
+        }
+    }
+}
 
 // 信号处理函数
 void sig_handler(int signum, siginfo_t *sip, void *contextVP) {
@@ -31,7 +47,7 @@ void sig_handler(int signum, siginfo_t *sip, void *contextVP) {
     } else {
         printf("Signal %d is not blocked in the ucontext.\n", signum);
     }
-    swapcontext(&ctx1, &ctx2);
+    swtch(&ctx1, &ctx2);
     // 获取当前进程的信号掩码
     if (sigprocmask(SIG_BLOCK, NULL, &sig_mask) == 0) {
         // 检查当前信号是否在掩码中被设置为阻塞状态
@@ -96,6 +112,7 @@ void thread_func1() {
             printf("Signal %d is not blocked in the thread 1.\n", SIGINT);
         }
     }
+    swtch(&ctx1, &main_ctx);
 }
 
 // 线程函数2
@@ -119,7 +136,7 @@ void thread_func2() {
             printf("Signal %d is not blocked in the thread 2.\n", SIGALRM);
         }
     }
-    setcontext(&ctx1);
+    swapcontext(&ctx2, &ctx1);
 }
 
 void register_handler(int signum, void (*handler)(int, siginfo_t *, void *)) {
@@ -162,11 +179,12 @@ int main() {
     // sigaddset(&ctx2.uc_sigmask, SIGALRM);
 
     // 切换到ctx1上下文，开始执行thread_func1
-    setcontext(&ctx1);
+    swtch(&main_ctx, &ctx1);
 
-    // 释放栈内存
+    // 释放栈内存 
     free_context(&ctx1);
     free_context(&ctx2);
+    printf("Main thread exit\n");
 
     return 0;
 }
