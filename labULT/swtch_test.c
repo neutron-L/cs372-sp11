@@ -14,7 +14,6 @@
 
 struct Thread {
     ucontext_t ctx;
-    int swtch_flag;
 };
 
 struct Thread th1, th2, main_th;
@@ -43,14 +42,14 @@ void setup_context(ucontext_t *ctx, void (*func)()) {
 }
 
 void swtch(struct Thread *th1, struct Thread *th2) {
-    th1->swtch_flag = 1;
+    volatile int flag = 1;
     // 保存当前上下文到 oucp
     if (getcontext(&th1->ctx) == -1) {
         perror("getcontext");
     }
     // 切换到目标上下文 ucp
-    if (th1->swtch_flag) {
-        th2->swtch_flag = 0;
+    if (flag) {
+        flag = 0;
         if (setcontext(&th2->ctx) == -1) {
             perror("setcontext");
         }
@@ -86,7 +85,6 @@ void thread_func2() {
 
     printf("thread 2 exit...\n");
 
-    main_th.swtch_flag = 0;
     swtch(&th2, &main_th);
 }
 
@@ -96,7 +94,6 @@ int main() {
 
     // 设置ctx2的栈和入口点
     setup_context(&th2.ctx, thread_func2);
-    main_th.swtch_flag = 1;
     swtch(&main_th, &th1);
     printf("Exit\n");
 
