@@ -4,7 +4,7 @@
 CC	:= gcc 
 CFLAGS := -g -Wall $(LABDEFS)
 
-TARGETS := doTest doTest2 showHandler libULT.a alarmHelper parseUcontext
+TARGETS := doTest doTest2 showHandler libULT.a alarmHelper parseUcontext cooperative_test preemptive_test
 
 # Make sure that 'all' is the first target
 all: $(TARGETS)
@@ -90,6 +90,20 @@ doTest2.o: doTest2.c basicThreadTests.h interrupt.h ULT.h  $(MOREH)
 
 doTest2: doTest2.o libULT.a basicThreadTests.o 
 	gcc $(CFLAGS) -o $@ doTest2.o basicThreadTests.o  $(ULT_LIB)
+
+
+cooperative_test.o: cooperative_test.c libULT.a
+	gcc -c $(CFLAGS) -o $@ cooperative_test.c
+
+cooperative_test: cooperative_test.o libULT.a
+	gcc $(CFLAGS) -o $@ cooperative_test.o  $(ULT_LIB)
+
+
+preemptive_test.o: preemptive_test.c libULT.a
+	gcc -c $(CFLAGS) -o $@ preemptive_test.c
+
+preemptive_test: preemptive_test.o libULT.a
+	gcc $(CFLAGS) -o $@ preemptive_test.o  $(ULT_LIB)
 
 showHandler.o: showHandler.c interrupt.h ULT.h $(MOREH)
 	gcc -c $(CFLAGS) -o $@ showHandler.c
