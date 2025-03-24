@@ -4,6 +4,8 @@
 #include <string.h>
 #include <sys/time.h>
 
+#include <ctime>
+#include <sstream>
 #include <string>
 #include "Stats.h"
 
@@ -42,7 +44,7 @@ Stats::Stats()
     // no credit.
     //
 
-  smutex_init(&mtx);
+  smutex_init(&mtx_);
 }
 
 
@@ -118,14 +120,14 @@ Stats::update(int flowId, int byteCount)
     // no credit.
     //
     assert(flowId >= 0 && flowId <= MAX_FLOW_ID);
-    smutex_lock(&mtx);
+    smutex_lock(&mtx_);
 
-    if (flowId > maxFlowId) {
-      flowByteCount.resize(flowId + 1);
-      maxFlowId = flowId;
+    if (flowId > maxFlowId_) {
+      flowByteCount_.resize(flowId + 1);
+      maxFlowId_ = flowId;
     }
-    flowByteCount[flowId] += byteCount;
-    smutex_unlock(&mtx);
+    flowByteCount_[flowId] += byteCount;
+    smutex_unlock(&mtx_);
 }
 
 
@@ -183,29 +185,29 @@ Stats::toString(char *buffer, int maxLen)
     // standards will receive little or
     // no credit.
     //
-    smutex_lock(&mtx);
+    smutex_lock(&mtx_);
 
     int end = 0;
      char str[22];
      long long tot = 0;
     // 将整数 num 转换为字符串，最多写入 sizeof(str) - 1 个字符到 str 中
-    for (int i = 0; i <= maxFlowId + 1; ++i) {
-      int num = (i <= maxFlowId) ? flowByteCount[i] : tot;
+    for (int i = 0; i <= maxFlowId_ + 1; ++i) {
+      int num = (i <= maxFlowId_) ? flowByteCount_[i] : tot;
       int n = snprintf(str, sizeof(str), "%d", num);
       assert(n < 22);
       strncpy(buffer + end, str, n);
       end += n;
 
-      if (i <= maxFlowId) {
+      if (i <= maxFlowId_) {
           buffer[end] = ' ';
           ++end;
-          tot += flowByteCount[i];
+          tot += flowByteCount_[i];
       } else {
           buffer[end] = '\0'; // FIXME
       }
       assert(end < maxLen);
     }
-    smutex_unlock(&mtx);
+    smutex_unlock(&mtx_);
 
   return buffer;
 }
@@ -263,14 +265,61 @@ Stats::sequentialTest() {
 }
 
 
-// static void * thread_func(void * arg) {
-//   Stats * stats = (Stats *)arg;
+struct ThreadArg {
+  Stats * stats_{};
+  int times_{};
+  int fd_{};
+};
 
+static void *thread_func(void *arg) {
+  ThreadArg *targ = (ThreadArg *)arg;
+  const int maxLen = 1024 * 1024;
+  char buffer[maxLen];
 
-//   return NULL;
-// }
+   // 使用当前时间作为随机数种子
+    std::srand(static_cast<unsigned int>(time(0)));
+
+    auto getFlowCount = [](const char *str, int idx) {
+        std::string s(str);
+        std::stringstream ss(s);
+        std::string token;
+        int i = 0;
+        while (ss >> token && i < idx) {
+            ++i;
+        }
+        return stoi(token);
+    };
+
+    long long tot{};
+
+    // 线程产生指定个数的随机值并累加到流字节数中
+    for (int _ = 0; _ < targ->times_; ++_) {
+      int count = std::rand() % 1001; // rand() % 1001 生成0到1000;
+      tot += count;
+      targ->stats_->update(targ->fd_, count);
+    }
+    // 判断流字节总数是否和调用update传入的总数想等
+    targ->stats_->toString(buffer, maxLen);
+    assert(tot == getFlowCount(buffer, targ->fd_));
+
+    printf("%d update normally\n", targ->fd_);
+    return NULL;
+}
 
 void 
 Stats::concurrencyTest() {
+  const int thread_num = 100;
+  const int times = 100;
+  struct Stats stats;
+  sthread_t threads[thread_num];
 
+  for(int i = 0; i < thread_num; i++){
+      ThreadArg * arg = (ThreadArg *)malloc(sizeof(ThreadArg));
+      arg->stats_ = &stats;
+      arg->times_ = times;
+      arg->fd_ = i;
+      sthread_create(&threads[i], (void*(*)(void*))thread_func, (void *)arg);
+    }
+    // 等待其他线程执行完毕输出
+    sthread_sleep(3, 0);
 }

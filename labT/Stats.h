@@ -19,9 +19,9 @@ class Stats{
 
    void sequentialTest();
    void concurrencyTest();
-  std::vector<size_t> flowByteCount{};
-  int maxFlowId{-1};
+  std::vector<size_t> flowByteCount_{};
+  int maxFlowId_{-1};
 
-  smutex_t mtx{};
+  smutex_t mtx_{};
 };
 #endif  
