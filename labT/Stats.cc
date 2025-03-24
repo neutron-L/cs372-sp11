@@ -232,10 +232,45 @@ Stats::toString(char *buffer, int maxLen)
 void
 Stats::unitTest()
 {
-  assert(0); // TBD: add some simple unit tests. 
+  // assert(0); // TBD: add some simple unit tests. 
              // You need to design these tests based on
              // your data structures.
+  sequentialTest();
+  concurrencyTest();
   printf("Stats self test passes.\n");
   return;
   
+}
+
+
+/* 自定义的两个测试 */
+// 顺序测试，仅一个线程执行update和toString
+void 
+Stats::sequentialTest() {
+  const int maxLen = 1024;
+  char buffer[maxLen];
+
+  update(0, 1);
+  assert(!strcmp(toString(buffer, maxLen), "1 1"));
+  update(3, 2);
+  assert(!strcmp(toString(buffer, maxLen), "1 0 0 2 3"));
+  update(2, 11);
+  assert(!strcmp(toString(buffer, maxLen), "1 0 11 2 14"));
+  update(2, 2);
+  assert(!strcmp(toString(buffer, maxLen), "1 0 13 2 16"));
+  update(8, 8);
+  assert(!strcmp(toString(buffer, maxLen), "1 0 13 2 0 0 0 0 8 24"));
+}
+
+
+// static void * thread_func(void * arg) {
+//   Stats * stats = (Stats *)arg;
+
+
+//   return NULL;
+// }
+
+void 
+Stats::concurrencyTest() {
+
 }

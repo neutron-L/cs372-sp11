@@ -50,6 +50,10 @@ sender: sender.o common.o $(COMMONOBJS)
 receiver: receiver.o common.o $(COMMONOBJS)
 	$(CC) -o receiver receiver.o common.o $(COMMONOBJS) $(LIBS) 
 
+test_stats: test_stats.cc Stats.cc sthread.cc Stats.h sthread.h 
+	 $(C++) -o $@ test_stats.cc Stats.cc sthread.cc  
+
+
 test: test.o
 	$(CC) -o test test.o common.o $(COMMONOBJS) $(LIBS)
 

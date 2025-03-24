@@ -16,6 +16,9 @@ class Stats{
   static const int MAX_FLOW_ID = 1023;
 
  private:
+
+   void sequentialTest();
+   void concurrencyTest();
   std::vector<size_t> flowByteCount{};
   int maxFlowId{-1};
 
