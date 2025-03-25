@@ -43,7 +43,7 @@ MaxNWScheduler::waitMyTurn(int ignoredFlowID, float ignoredWeight, int lenToSend
   scond_signal(&newDeadline_, &mtx_);
   prevLenToSend = lenToSend;
 
-  while (!(deadlines_.empty() || deadlines_.front() >= deadline)) {
+  while (!(deadlines_.empty() || deadlines_.front() > deadline)) {
     scond_wait(&timeout_, &mtx_);
   }
   smutex_unlock(&mtx_);
