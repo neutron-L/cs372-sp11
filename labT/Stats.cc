@@ -303,6 +303,8 @@ static void *thread_func(void *arg) {
     assert(tot == getFlowCount(buffer, targ->fd_));
 
     printf("%d update normally\n", targ->fd_);
+
+    free(targ);
     return NULL;
 }
 
