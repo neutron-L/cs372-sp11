@@ -23,7 +23,7 @@ STFQNWScheduler::waitMyTurn(int flowId, float weight, int lenToSend)
   smutex_lock(&mtx_);
 
   // 检查currentVirtualTime更新
-  if (nowMS() >= prevSentTime_ + prevLenToSend / bytesPerSec_) {
+  if (nowMS() >= prevSentTime_ + prevLenToSend / bytesPerSec_ && stag_queue_.empty() && deadlines_.empty()) {
     for (auto & tag : flowPrevFTag_) {
         currentVirtualTime_ = std::max(currentVirtualTime_, tag);
     }
@@ -49,7 +49,7 @@ STFQNWScheduler::waitMyTurn(int flowId, float weight, int lenToSend)
   scond_signal(&newDeadline_, &mtx_);
   prevLenToSend = lenToSend;
 
-  while (!(deadlines_.empty() || deadlines_.front() >= deadline)) {
+  while (!(deadlines_.empty() || deadlines_.front() > deadline)) {
     scond_wait(&timeout_, &mtx_);
   } 
 
@@ -57,7 +57,7 @@ STFQNWScheduler::waitMyTurn(int flowId, float weight, int lenToSend)
   scond_broadcast(&front_, &mtx_);
   // 更新上次数据包发送的时间
   prevSentTime_ = nowMS();
-  
+
   smutex_unlock(&mtx_);
 }
 
