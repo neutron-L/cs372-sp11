@@ -29,11 +29,12 @@ STFQNWScheduler::waitMyTurn(int flowId, float weight, int lenToSend)
     }
   }
   // 计算start tag finish tag
-  if (flowPrevFTag_.size() <= flowId) {
+  if ((int)flowPrevFTag_.size() <= flowId) {
     flowPrevFTag_.resize(flowId + 1);
   }
   long stag = std::max(currentVirtualTime_, flowPrevFTag_[flowId]);
   long ftag = stag + lenToSend / weight;
+  flowPrevFTag_[flowId] = std::max(flowPrevFTag_[flowId], ftag);
   stag_queue_.push(stag);
 
   // NOTE: 不必担心stag重复的问题导致多个线程同时满足下述条件，因为只有一个线程能获得锁
