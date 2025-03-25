@@ -3,10 +3,15 @@
 #include <sys/time.h>
 #include "MaxNWScheduler.h"
 #include "NWScheduler.h"
+#include "util.h"
+#include "AlarmThread.h"
 
 MaxNWScheduler::MaxNWScheduler(long bytesPerSec)
 {
-  assert(0); // TBD: Fill this in
+  // assert(0); // TBD: Fill this in
+  smutex_init(&mtx_);
+  scond_init(&newDeadline_);
+  scond_init(&timeout_);
 }
 
 //-------------------------------------------------
@@ -29,7 +34,20 @@ MaxNWScheduler::MaxNWScheduler(long bytesPerSec)
 void
 MaxNWScheduler::waitMyTurn(int ignoredFlowID, float ignoredWeight, int lenToSend)
 {
-  assert(0); // TBD: Fill this in
+  static int prevLenToSend{};
+  
+  smutex_lock(&mtx_);
+  long deadline = (deadlines_.empty() ? nowMS() : deadlines_.back()) + prevLenToSend / bytesPerSec_;
+
+  deadlines_.push(deadline);
+  scond_signal(&newDeadline_, &mtx_);
+  prevLenToSend = lenToSend;
+
+  while (!(deadlines_.empty() || deadlines_.front() >= deadline)) {
+    scond_wait(&timeout_, &mtx_);
+  }
+  smutex_unlock(&mtx_);
+  // assert(0); // TBD: Fill this in
 }
 
 //-------------------------------------------------
@@ -51,5 +69,26 @@ MaxNWScheduler::waitMyTurn(int ignoredFlowID, float ignoredWeight, int lenToSend
 long long
 MaxNWScheduler::signalNextDeadline(long long prevDeadlineMS)
 {
-  assert(0); // TBD: Fill this in
+  long long deadline{};
+  bool trigger{false};
+
+  smutex_lock(&mtx_);
+
+  while (!deadlines_.empty() && deadlines_.front() <= prevDeadlineMS) {
+    deadlines_.pop();
+    trigger = true;
+  }
+
+  if (trigger) {
+    scond_broadcast(&timeout_, &mtx_);
+  }
+
+  while (deadlines_.empty()) {
+    scond_wait(&newDeadline_, &mtx_);
+  }
+  deadline = deadlines_.front();
+  smutex_unlock(&mtx_);
+  // assert(0); // TBD: Fill this in
+  
+  return deadline;
 }

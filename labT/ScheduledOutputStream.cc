@@ -95,7 +95,9 @@ int ScheduledOutputStream::write(char *bytes, int length)
    * e.g. scheduler.waitMyTurn(flowId, length, ...)
    * ...
    */
-  assert(0); // TBD
+  // assert(0); // TBD
+  scheduler->waitMyTurn(flowId, weight, length);
+
 
   return OutputStream::write(bytes, length);
 

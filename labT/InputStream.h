@@ -14,6 +14,11 @@ class InputStream{
 	      Stats *stats);
   virtual ~InputStream();
   virtual int read(char *bytes, int length);
+
+protected:
+int getFlowId() const {
+  return flowId;
+}
   
  private:
   int fd;   /* File descriptor of underlying socket */

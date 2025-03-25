@@ -38,6 +38,8 @@ ScheduledInputStream::ScheduledInputStream(int fd_,
 {
   assert(weight_ >= 0);
   assert(scheduler_ != NULL);
+  this->weight_ = weight_;
+  this->scheduler_ = scheduler_;
 }
 
 
@@ -89,5 +91,7 @@ int ScheduledInputStream::read(char *bytes, int length)
   /*
    * TBD: wait my turn
    */
-  return InputStream::read(bytes, length);
+  scheduler_->waitMyTurn(getFlowId(), weight_, length);
+
+  return InputStream::read( bytes, length);
 }

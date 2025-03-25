@@ -22,6 +22,9 @@ class ScheduledInputStream : public InputStream{
   /* 
    * You will probably have to add some new stuff here
    */
+  float weight_{};
+  NWScheduler * scheduler_{};
+
 };
 
 #endif 
