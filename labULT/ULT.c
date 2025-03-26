@@ -116,6 +116,7 @@ Tid ULT_DestroyThread(Tid tid) {
         --thread_num;
         swtch(running_thread, scheduler);
         // 如果是最后一个线程，则会被schedule调度回来
+        ++thread_num;
         ret = ULT_NONE;
         goto end;
     }
