@@ -12,6 +12,9 @@
 import java.io.IOException;
 
 public class Transaction{
+    private static final int INPROGRESS = 0xaabb;
+    private static final int COMMITTED = 0xaabc;
+    private static final int ABORTED = 0xaabd;
 
     // 
     // You can modify and add to the interfaces
@@ -20,6 +23,9 @@ public class Transaction{
     private SimpleLock lock;
     private HashMap<Integer, byte[]> sectorWriteRecords;
     private LinkedList<Integer> sectorNumList;
+    private int logStart;
+    private int logSectors;
+    private int status;
 
     public Transaction() {
         transID = new TransID();
@@ -116,12 +122,37 @@ public class Transaction{
     // writeback is done.
     //
     public void rememberLogSectors(int start, int nSectors){
+        try {
+            lock.lock();
+            logStart = start;
+            logSectors = nSectors;
+        } finally {
+            lock.unlock();
+        }
     }
     public int recallLogSectorStart(){
-        return -1;
+        int start = -1;
+
+        try {
+            lock.lock();
+            start = logStart;
+        } finally {
+            lock.unlock();
+        }
+
+        return start;
     }
     public int recallLogSectorNSectors(){
-        return -1;
+        int nSectors = -1;
+
+        try {
+            lock.lock();
+            nSectors = logSectors;
+        } finally {
+            lock.unlock();
+        }
+
+        return nSectors;
     }
 
 
