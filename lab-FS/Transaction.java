@@ -16,6 +16,7 @@ public class Transaction{
     // 
     // You can modify and add to the interfaces
     //
+    private final TransId transID;
 
     public void addWrite(int sectorNum, byte buffer[])
     throws IllegalArgumentException, 
@@ -107,6 +108,9 @@ public class Transaction{
         return -1;
     }
 
+    public TransID getTransID() {
+        return transID;
+    }
     
     //
     // Parse a sector from the log that *may*
