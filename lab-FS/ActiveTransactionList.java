@@ -9,24 +9,58 @@
  * (C) 2011 Mike Dahlin
  *
  */
+
+import java.util.LinkedList;
+
 public class ActiveTransactionList{
 
     /*
      * You can alter or add to these suggested methods.
      */
+    private LinkedList<String> transactions = new LinkedList<>();
+    private SimpleLock lock = new SimpleLock();
 
     public void put(Transaction trans){
-        System.exit(-1); // TBD
+        lock.lock();
+        transactions.add(trans);
+        lock.unlock();
+        // System.exit(-1); // TBD
     }
 
     public Transaction get(TransID tid){
-        System.exit(-1); // TBD
-        return null;
+        Transaction trans = null;
+
+        lock.lock();
+        for (Transaction elem : transactions) {
+            if (elem.getTransID() == tid) {
+                trans = elem;
+                break;
+            }
+        }
+        lock.unlock();
+        // System.exit(-1); // TBD
+        return trans;
     }
 
     public Transaction remove(TransID tid){
-        System.exit(-1); // TBD
-        return null;
+        Transaction trans = null;
+        int index = 0;
+
+        lock.lock();
+        for (Transaction elem : transactions) {
+            if (elem.getTransID() == tid) {
+                trans = elem;
+                break;
+            }
+            ++index;
+        }
+        lock.unlock();
+        // System.exit(-1); // TBD
+        if (trans != null) {
+            transactions.remove(index);
+        }
+        
+        return trans;
     }
 
 
