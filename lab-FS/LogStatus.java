@@ -13,6 +13,18 @@
  *
  */
 public class LogStatus{
+    private int head;
+    private int tail;
+    private int logLength;
+    private SimpleLock lock;
+    private Condition freeSpace;
+
+    public LogStatus() {
+        lock = new SimpleLock();
+        freeSpace = lock.newCondition();
+        head = tail = 0;
+        logLength = 0;
+    }
 
     // 
     // Return the index of the log sector where
@@ -20,7 +32,20 @@ public class LogStatus{
     //
     public int reserveLogSectors(int nSectors)
     {
-        return -1;
+        int start = -1;
+
+        try {
+            lock.lock();
+            while (logLength < nSectors) {
+                freeSpace.awaitUninterruptibly();
+            }
+            start = head;
+            head = (head + nSectors) % Disk.REDO_LOG_SECTORS;
+            logLength += nSectors;
+        } finally {
+            lock.unlock();
+        }
+        return start;
     }
 
     //
@@ -30,7 +55,20 @@ public class LogStatus{
     //
     public int writeBackDone(int startSector, int nSectors)
     {
-        return -1;
+        int start = -1;
+
+        try {
+            lock.lock();
+            while (logLength < nSectors) {
+                freeSpace.awaitUninterruptibly();
+            }
+            start = tail;
+            tail = (tail + nSectors) % Disk.REDO_LOG_SECTORS;
+            logLength -= nSectors;
+        } finally {
+            lock.unlock();
+        }
+        return start;
     }
 
     //
@@ -41,6 +79,13 @@ public class LogStatus{
     //
     public void recoverySectorsInUse(int startSector, int nSectors)
     {
+        try {
+            start = startSector;
+            tail = (start + nSectors) % Disk.REDO_LOG_SECTORS;
+            logLength = nSectors;
+        } finally {
+            lock.unlock();
+        }
     }
 
     //
@@ -70,7 +115,16 @@ public class LogStatus{
     // the sectors about to be reserved/reused.
     //
     public int logStartPoint(){
-        return -1;
+        int start = -1;
+
+        try {
+            lock.lock();
+            start = tail;
+        } finally {
+            lock.unlock();
+        }
+        
+        return start;
     }
     
 }

@@ -134,9 +134,12 @@ public class Transaction{
     public int getNUpdatedSectors(){
         int totalSectors  = 0;
 
-        lock.lock();
-        totalSectors = sectorWriteRecords.size();
-        lock.unlock();
+        try {
+            lock.lock();
+            totalSectors = sectorWriteRecords.size();
+        } finally {
+            lock.unlock();
+        }
 
         return totalSectors;
     }
@@ -206,4 +209,8 @@ public class Transaction{
     
 }
 
+class TransLogHeader {
+    private int logSectorNum;
+
+}
 
