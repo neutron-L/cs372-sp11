@@ -17,14 +17,15 @@ public class Transaction{
     // You can modify and add to the interfaces
     //
     private final TransId transID;
-
     private SimpleLock lock;
     private HashMap<Integer, byte[]> sectorWriteRecords;
+    private LinkedList<Integer> sectorNumList;
 
     public Transaction() {
         transID = new TransID();
         lock = new SimpleLock();
         sectorWriteRecords = new HashMap<>();
+        sectorNumList = new LinkedList<>();
     }
 
     public void addWrite(int sectorNum, byte buffer[])
@@ -39,6 +40,7 @@ public class Transaction{
 
             if (!sectorWriteRecords.containsKey(sectorNum)) {
                 sectorWriteRecords.put(sectorNum, new byte[Disk.SECTOR_SIZE]);
+                sectorNumList.add(sectorNum);
             }
             System.arraycopy(buffer, 0, sectorWriteRecords[sectorNum], 0, Disk.SECTOR_SIZE);
         } finally {
@@ -149,11 +151,13 @@ public class Transaction{
     public int getUpdateI(int i, byte buffer[]) {
         try {
             lock.lock();
-            if (sectorWriteRecords.containsKey(i)) {
-                System.arraycopy(sectorWriteRecords[sectorNum], 0, buffer, 0, Disk.SECTOR_SIZE);
-            } else {
+
+            if (i < 0 || i >= sectorNumList.length) {
                 i = -1;
-            } 
+            } else {
+                i = sectorNumList.get(i);
+                System.arraycopy(sectorWriteRecords[i], 0, buffer, 0, Disk.SECTOR_SIZE);
+            }
         } finally {
             lock.unlock();
         }
