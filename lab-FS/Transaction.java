@@ -18,10 +18,32 @@ public class Transaction{
     //
     private final TransId transID;
 
+    private SimpleLock lock;
+    private HashMap<Integer, byte[]> sectorWriteRecords;
+
+    public Transaction() {
+        transID = new TransID();
+        lock = new SimpleLock();
+        sectorWriteRecords = new HashMap<>();
+    }
+
     public void addWrite(int sectorNum, byte buffer[])
     throws IllegalArgumentException, 
            IndexOutOfBoundsException
     {
+        checkSectorNum(sectorNum);
+        checkBuffer(buffer);
+
+        try {
+            lock.lock();
+
+            if (!sectorWriteRecords.containsKey(sectorNum)) {
+                sectorWriteRecords.put(sectorNum, new byte[Disk.SECTOR_SIZE]);
+            }
+            System.arraycopy(buffer, 0, sectorWriteRecords[sectorNum], 0, Disk.SECTOR_SIZE);
+        } finally {
+            lock.unlock();
+        }
     }
 
     //
@@ -33,7 +55,21 @@ public class Transaction{
     throws IllegalArgumentException, 
            IndexOutOfBoundsException
     {
-        return false;
+        checkSectorNum(sectorNum);
+        checkBuffer(buffer);
+
+        boolean ret = false;
+
+        try {
+            lock.lock();
+            if ((ret = sectorWriteRecords.containsKey(sectorNum))) {
+                System.arraycopy(sectorWriteRecords[sectorNum], 0, buffer, 0, Disk.SECTOR_SIZE);
+            }
+        } finally {
+            lock.unlock();
+        }
+        
+        return ret;
     }
 
 
@@ -94,7 +130,13 @@ public class Transaction{
     // transaction updates. Used for writeback.
     //
     public int getNUpdatedSectors(){
-        return -1;
+        int totalSectors  = 0;
+
+        lock.lock();
+        totalSectors = sectorWriteRecords.size();
+        lock.unlock();
+
+        return totalSectors;
     }
 
     //
@@ -104,13 +146,38 @@ public class Transaction{
     // a secNum and put the body of the
     // write in byte array. Used for writeback.
     //
-    public int getUpdateI(int i, byte buffer[]){
-        return -1;
+    public int getUpdateI(int i, byte buffer[]) {
+        try {
+            lock.lock();
+            if (sectorWriteRecords.containsKey(i)) {
+                System.arraycopy(sectorWriteRecords[sectorNum], 0, buffer, 0, Disk.SECTOR_SIZE);
+            } else {
+                i = -1;
+            } 
+        } finally {
+            lock.unlock();
+        }
+        
+        return i;
     }
 
     public TransID getTransID() {
         return transID;
     }
+
+    private void checkSectorNum(int sectorNum)
+     throws IllegalArgumentException {
+        if(sectorNum < 0 || sectorNum >= Disk.NUM_OF_SECTORS) {
+            throw new IndexOutOfBoundsException("Bad sector number");
+        }
+     }
+
+    private void checkBuffer(byte[] buffer)
+     throws IllegalArgumentException {
+        if(buffer == null || buffer.length != Disk.SECTOR_SIZE) {
+            throw new IllegalArgumentException("Bad buffer");
+        }
+     }
     
     //
     // Parse a sector from the log that *may*

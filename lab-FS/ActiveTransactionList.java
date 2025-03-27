@@ -17,27 +17,40 @@ public class ActiveTransactionList{
     /*
      * You can alter or add to these suggested methods.
      */
-    private LinkedList<String> transactions = new LinkedList<>();
-    private SimpleLock lock = new SimpleLock();
+    private LinkedList<String> transactions;
+    private SimpleLock lock;
+
+    public ActiveTransactionList() {
+        transactions = new LinkedList<>();
+        lock = new SimpleLock();
+    }
 
     public void put(Transaction trans){
-        lock.lock();
-        transactions.add(trans);
-        lock.unlock();
+        try {
+            lock.lock();
+            transactions.add(trans);
+        } finally {
+            lock.unlock();
+        }
+        
         // System.exit(-1); // TBD
     }
 
     public Transaction get(TransID tid){
         Transaction trans = null;
 
-        lock.lock();
-        for (Transaction elem : transactions) {
-            if (elem.getTransID() == tid) {
-                trans = elem;
-                break;
+        try {
+            lock.lock();
+            for (Transaction elem : transactions) {
+                if (elem.getTransID() == tid) {
+                    trans = elem;
+                    break;
+                }
             }
+        } finally {
+            lock.unlock();
         }
-        lock.unlock();
+        
         // System.exit(-1); // TBD
         return trans;
     }
@@ -46,20 +59,23 @@ public class ActiveTransactionList{
         Transaction trans = null;
         int index = 0;
 
-        lock.lock();
-        for (Transaction elem : transactions) {
-            if (elem.getTransID() == tid) {
-                trans = elem;
-                break;
+        try {
+            lock.lock();
+            for (Transaction elem : transactions) {
+                if (elem.getTransID() == tid) {
+                    trans = elem;
+                    break;
+                }
+                ++index;
             }
-            ++index;
+        } finally {
+            lock.unlock();
         }
-        lock.unlock();
         // System.exit(-1); // TBD
         if (trans != null) {
             transactions.remove(index);
         }
-        
+
         return trans;
     }
 
