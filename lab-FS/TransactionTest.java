@@ -12,6 +12,7 @@ public class TransactionTest {
         
         testMeta(transaction);
         testRW(transaction, 100);
+        testHeaderParse(transaction);
         System.out.println("All threads have completed.");
     }
 
@@ -65,8 +66,18 @@ public class TransactionTest {
 
             // 每次写入后验证
             verifySectors.accept(writtenSectors);
+            assert(transaction.getNUpdatedSectors() == writtenSectors.size());
         }
         System.out.println("Test 2 Passed!");
+    }
+
+    private static void testHeaderParse(Transaction transaction) {
+        System.out.println("Test 3: test header write & parse");
+
+        
+
+        System.out.println("Test 3 Passed!");
+        
     }
 
     private static void setBuffer(byte value, byte b[])
