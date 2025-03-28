@@ -1,3 +1,4 @@
+
 /*
  * Transaction.java
  *
@@ -10,36 +11,58 @@
  *
  */
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectOutputStream;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.zip.CRC32;
 
-public class Transaction{
+public class Transaction {
     private static final int INPROGRESS = 0xaabb;
     private static final int COMMITTED = 0xaabc;
     private static final int ABORTED = 0xaabd;
 
-    // 
+    //
     // You can modify and add to the interfaces
     //
-    private final TransId transID;
+    private final TransID transID;
     private SimpleLock lock;
-    private HashMap<Integer, byte[]> sectorWriteRecords;
     private LinkedList<Integer> sectorNumList;
+    private LinkedHashMap<Integer, byte[]> sectorWriteRecords;
     private int logStart;
     private int logSectors;
     private int status;
 
+    // 用于构造commit sector
+    private long checkSum;
+
     public Transaction() {
         transID = new TransID();
         lock = new SimpleLock();
-        sectorWriteRecords = new HashMap<>();
+        sectorWriteRecords = new LinkedHashMap<>();
         sectorNumList = new LinkedList<>();
+        status = INPROGRESS;
+    }
+
+    public Transaction(TransID transID, LinkedList<Integer> sectorNumList, 
+    LinkedHashMap<Integer, byte[]> sectorWriteRecords, int logStart, int logSectors, int status) {
+        this.transID = transID;
+        this.lock = new SimpleLock();
+        this.sectorNumList = sectorNumList;
+        this.sectorWriteRecords = sectorWriteRecords;
+        this.logStart = logStart;
+        this.logSectors = logSectors;
+        this.status = status;
     }
 
     public void addWrite(int sectorNum, byte buffer[])
-    throws IllegalArgumentException, 
-           IndexOutOfBoundsException
-    {
-        checkSectorNum(sectorNum);
-        checkBuffer(buffer);
+            throws IllegalArgumentException,
+            IndexOutOfBoundsException {
+        checkSectorNum(sectorNum, 0, Disk.NUM_OF_SECTORS);
+        checkBuffer(buffer, 1);
 
         try {
             lock.lock();
@@ -48,7 +71,7 @@ public class Transaction{
                 sectorWriteRecords.put(sectorNum, new byte[Disk.SECTOR_SIZE]);
                 sectorNumList.add(sectorNum);
             }
-            System.arraycopy(buffer, 0, sectorWriteRecords[sectorNum], 0, Disk.SECTOR_SIZE);
+            System.arraycopy(buffer, 0, sectorWriteRecords.get(sectorNum), 0, Disk.SECTOR_SIZE);
         } finally {
             lock.unlock();
         }
@@ -60,40 +83,34 @@ public class Transaction{
     // Return false if this transaction has not written this sector.
     //
     public boolean checkRead(int sectorNum, byte buffer[])
-    throws IllegalArgumentException, 
-           IndexOutOfBoundsException
-    {
-        checkSectorNum(sectorNum);
-        checkBuffer(buffer);
+            throws IllegalArgumentException,
+            IndexOutOfBoundsException {
+        checkSectorNum(sectorNum, 0, Disk.NUM_OF_SECTORS);
+        checkBuffer(buffer, 1);
 
         boolean ret = false;
 
         try {
             lock.lock();
             if ((ret = sectorWriteRecords.containsKey(sectorNum))) {
-                System.arraycopy(sectorWriteRecords[sectorNum], 0, buffer, 0, Disk.SECTOR_SIZE);
+                System.arraycopy(sectorWriteRecords.get(sectorNum), 0, buffer, 0, Disk.SECTOR_SIZE);
             }
         } finally {
             lock.unlock();
         }
-        
+
         return ret;
     }
 
-
     public void commit()
-    throws IOException, IllegalArgumentException
-    {
+            throws IOException, IllegalArgumentException {
     }
 
     public void abort()
-    throws IOException, IllegalArgumentException
-    {
+            throws IOException, IllegalArgumentException {
     }
 
-
-
-    // 
+    //
     // These methods help get a transaction from memory to
     // the log (on commit), get a committed transaction's writes
     // (for writeback), and get a transaction from the log
@@ -107,11 +124,13 @@ public class Transaction{
     // this transaction on disk. Note that the
     // first sector is the header, which lists
     // which sectors the transaction updaets
-    // and the last sector is the commit. 
+    // and the last sector is the commit.
     // The k sectors between should contain
     // the k writes by this transaction.
     //
-    public byte[] getSectorsForLog(){
+    // 个人理解是构造[meta header [log sector]* commit sector]
+    // 获得的结果可以通过parseLogBytes构造出当前事务
+    public byte[] getSectorsForLog() {
         return null;
     }
 
@@ -121,7 +140,7 @@ public class Transaction{
     // you can free this part of the log when
     // writeback is done.
     //
-    public void rememberLogSectors(int start, int nSectors){
+    public void rememberLogSectors(int start, int nSectors) {
         try {
             lock.lock();
             logStart = start;
@@ -130,7 +149,8 @@ public class Transaction{
             lock.unlock();
         }
     }
-    public int recallLogSectorStart(){
+
+    public int recallLogSectorStart() {
         int start = -1;
 
         try {
@@ -142,7 +162,8 @@ public class Transaction{
 
         return start;
     }
-    public int recallLogSectorNSectors(){
+
+    public int recallLogSectorNSectors() {
         int nSectors = -1;
 
         try {
@@ -155,19 +176,18 @@ public class Transaction{
         return nSectors;
     }
 
-
-
     //
     // For a committed transaction, return
     // the number of sectors that this
     // transaction updates. Used for writeback.
     //
-    public int getNUpdatedSectors(){
-        int totalSectors  = 0;
+    public int getNUpdatedSectors() {
+        int totalSectors = 0;
 
         try {
             lock.lock();
             totalSectors = sectorWriteRecords.size();
+            assert(totalSectors == sectorNumList.size());
         } finally {
             lock.unlock();
         }
@@ -183,19 +203,21 @@ public class Transaction{
     // write in byte array. Used for writeback.
     //
     public int getUpdateI(int i, byte buffer[]) {
+        checkBuffer(buffer, 1);
+
         try {
             lock.lock();
 
-            if (i < 0 || i >= sectorNumList.length) {
+            if (i < 0 || i >= sectorNumList.size()) {
                 i = -1;
             } else {
                 i = sectorNumList.get(i);
-                System.arraycopy(sectorWriteRecords[i], 0, buffer, 0, Disk.SECTOR_SIZE);
+                System.arraycopy(sectorWriteRecords.get(i), 0, buffer, 0, Disk.SECTOR_SIZE);
             }
         } finally {
             lock.unlock();
         }
-        
+
         return i;
     }
 
@@ -203,20 +225,20 @@ public class Transaction{
         return transID;
     }
 
-    private void checkSectorNum(int sectorNum)
-     throws IllegalArgumentException {
-        if(sectorNum < 0 || sectorNum >= Disk.NUM_OF_SECTORS) {
+    private void checkSectorNum(int sectorNum, int start, int end)
+            throws IllegalArgumentException {
+        if (sectorNum < start || sectorNum >= end) {
             throw new IndexOutOfBoundsException("Bad sector number");
         }
-     }
+    }
 
-    private void checkBuffer(byte[] buffer)
-     throws IllegalArgumentException {
-        if(buffer == null || buffer.length != Disk.SECTOR_SIZE) {
+    private void checkBuffer(byte[] buffer, int nSectors)
+            throws IllegalArgumentException {
+        if (buffer == null || buffer.length != nSectors * Disk.SECTOR_SIZE) {
             throw new IllegalArgumentException("Bad buffer");
         }
-     }
-    
+    }
+
     //
     // Parse a sector from the log that *may*
     // be a transaction header. If so, return
@@ -225,7 +247,63 @@ public class Transaction{
     // header and commit) to get the full transaction.
     //
     public static int parseHeader(byte buffer[]){
-        return -1;
+        int ret = -1;
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(buffer);
+            ObjectInputStream ois = new ObjectInputStream(bis)) {
+            // 读取 TransID 对象
+            TransID transID = (TransID) ois.readObject();
+            // 读取 LinkedList<Integer> 对象
+            LinkedList<Integer> linkedList = (LinkedList<Integer>) ois.readObject();
+            // 读取一个 int 值
+            int start = ois.readInt();
+            int totLogSectors = ois.readInt();
+            int status = ois.readInt();
+
+            ret = totLogSectors + 2;
+            System.out.println("transID: " + transID.toInt());
+            System.out.println("LinkedList<Integer> 对象: " + linkedList);
+            System.out.println("start: " + start);
+            System.out.println("log sectors: " + totLogSectors);
+            System.out.println("status: " + status);
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+        return ret;
+    }
+
+    public int writeHeader(byte buffer[])
+    throws IllegalArgumentException
+     {
+        checkBuffer(buffer, 1);
+
+        // fill 0
+        Arrays.fill(buffer, (byte)0);
+
+        int ret = -1;
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
+             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+            lock.lock();
+
+            oos.writeObject(transID);
+            oos.writeObject(sectorNumList);
+            oos.writeInt(logStart);
+            oos.writeInt(logSectors);
+            oos.writeInt(status);
+
+            byte[] serializedBytes = bos.toByteArray();
+            // 确保目标数组足够大
+            if (buffer.length < serializedBytes.length) {
+                throw new IllegalArgumentException("目标数组长度不足以存储序列化后的对象。");
+            }
+            // 将序列化后的字节复制到目标数组
+            System.arraycopy(serializedBytes, 0, buffer, 0, serializedBytes.length);
+            ret = 1;
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+        return ret;
     }
 
     //
@@ -233,15 +311,113 @@ public class Transaction{
     // If this is a committed transaction, construct a
     // committed transaction and return it. Otherwise
     // throw an exception or return null.
-    public static Transaction parseLogBytes(byte buffer[]){
+    public static Transaction parseLogBytes(byte buffer[]) {
+        // // 首先，验证其长度为sector size的整数倍
+        // if (buffer == null || buffer.length % Disk.SECTOR_SIZE != 0) {
+        //     return null;
+        // }
+
+        // try {
+            
+        //     ByteArrayInputStream bis = new ByteArrayInputStream(buffer);
+        //     ObjectInputStream ois = new ObjectInputStream(bis)
+
+        //     // 读取 TransID 对象
+        //     TransID transID = (TransID) ois.readObject();
+        //     // 读取 LinkedList<Integer> 对象
+        //     LinkedList<Integer> linkedList = (LinkedList<Integer>) ois.readObject();
+        //     // 读取一个 int 值
+        //     int start = ois.readInt();
+        //     int totLogSectors = ois.readInt();
+        //     int status = ois.readInt();
+
+        //     ret = totLogSectors + 2;
+        //     System.out.println("transID: " + transID.toInt());
+        //     System.out.println("LinkedList<Integer> 对象: " + linkedList);
+        //     System.out.println("start: " + start);
+        //     System.out.println("log sectors: " + totLogSectors);
+        //     System.out.println("status: " + status);
+        // } catch (IOException | ClassNotFoundException e) {
+        //     e.printStackTrace();
+        // }
+
+        // this.transID = transID;
+        // this.lock = new SimpleLock();
+        // this.sectorNumList = sectorNumList;
+        // this.sectorWriteRecords = sectorWriteRecords;
+        // this.logStart = logStart;
+        // this.logSectors = logSectors;
+        // this.status = status;
+
         return null;
     }
-    
-    
+
+    public int writeLogBytes(byte buffers[][])
+    throws IllegalArgumentException
+    {
+        int ret = logSectors + 2;
+
+        if (status != COMMITTED) {
+            return -1;
+        }
+
+        if (buffers.length != logSectors + 2) {
+            throw new IllegalArgumentException("Bad buffers");
+        }
+
+        for (byte[] buffer : buffers) {
+            checkBuffer(buffer, 1);
+            // fill 0
+            Arrays.fill(buffer, (byte)0);
+        }
+
+
+        try {
+            lock.lock();
+
+            // 写入header
+            // 可重入锁
+            writeHeader(buffers[0]);
+
+            // 复制written sectors
+            int index =1;
+            for (int secNum : sectorNumList) {
+                System.arraycopy(sectorWriteRecords.get(secNum), 0, buffers[index], 0, Disk.SECTOR_SIZE);
+                ++index;
+            }
+
+            // 写入一个commit sector
+            // 具体需要保存什么未知，考虑后决定写入（事务id，状态，校验和）
+
+            // 计算指定范围内数据的 CRC32 校验和
+            CRC32 crc32 = new CRC32();
+            for (int i = 0; i <= logSectors; ++i) {
+                crc32.update(buffers[i], 0, Disk.SECTOR_SIZE);
+            }
+            checkSum = crc32.getValue();
+
+           
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(bos);
+
+            oos.writeObject(transID);
+            oos.writeInt(status);
+            oos.writeLong(checkSum);
+            byte[] serializedBytes = bos.toByteArray();
+            // 确保目标数组足够大
+            if (buffers[buffers.length - 1].length < serializedBytes.length) {
+                throw new IllegalArgumentException("目标数组长度不足以存储序列化后的对象。");
+            }
+            // 将序列化后的字节复制到目标数组
+            System.arraycopy(serializedBytes, 0, buffers[buffers.length - 1], 0, serializedBytes.length);
+        } catch (IOException e) {
+            e.printStackTrace();
+            ret = -1;
+        } finally {
+            lock.unlock();
+        }
+
+        return ret;
+    }
+
 }
-
-class TransLogHeader {
-    private int logSectorNum;
-
-}
-
