@@ -131,7 +131,36 @@ public class Transaction {
     // 个人理解是构造[meta header [log sector]* commit sector]
     // 获得的结果可以通过parseLogBytes构造出当前事务
     public byte[] getSectorsForLog() {
-        return null;
+        byte[] transLog = new byte[2 + logSectors];
+        byte[] headerBuffer = new byte[Disk.SECTOR_SIZE];
+        byte[] commitBuffer = new byte[Disk.SECTOR_SIZE];
+        int offset = 0;;
+
+        try {
+            // 可重入锁
+            lock.lock();
+
+            // 写header
+            writeHeader(headerBuffer);
+            System.arraycopy(headerBuffer, 0, transLog, offset, Disk.SECTOR_SIZE);
+
+            for (int sectorNum : sectorNumList) {
+                offset += Disk.SECTOR_SIZE;
+                System.arraycopy(sectorWriteRecords.get(sectorNum), 0, transLog, offset, Disk.SECTOR_SIZE);
+            }
+
+            // 写入commit sector
+            // 具体需要保存什么未知，考虑后决定写入（事务id，状态，校验和）
+
+
+        } catch (IllegalArgumentException e) {
+            e.printStackTrace();
+            transLog = null;
+        } finally {
+            lock.unlock();
+        }
+
+        return transLog;
     }
 
     //
@@ -225,14 +254,14 @@ public class Transaction {
         return transID;
     }
 
-    private void checkSectorNum(int sectorNum, int start, int end)
+    private static void checkSectorNum(int sectorNum, int start, int end)
             throws IllegalArgumentException {
         if (sectorNum < start || sectorNum >= end) {
             throw new IndexOutOfBoundsException("Bad sector number");
         }
     }
 
-    private void checkBuffer(byte[] buffer, int nSectors)
+    private static void checkBuffer(byte[] buffer, int nSectors)
             throws IllegalArgumentException {
         if (buffer == null || buffer.length != nSectors * Disk.SECTOR_SIZE) {
             throw new IllegalArgumentException("Bad buffer");
@@ -246,7 +275,7 @@ public class Transaction {
     // log that should be read (including the
     // header and commit) to get the full transaction.
     //
-    public static int parseHeader(byte buffer[]){
+    public static int parseHeader(byte buffer[]) {
         int ret = -1;
         try {
             ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
@@ -275,6 +304,33 @@ public class Transaction {
             System.out.println("start: " + logStart);
             System.out.println("log sectors: " + logSectors);
             System.out.println("status: " + status);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return ret;
+    }
+
+    public static int parseCommit(byte buffer[], long[] meta) {
+        checkBuffer(buffer, 1);
+
+        int ret = -1;
+        try {
+            ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+            byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
+
+            // 读取 TransID 对象 logStart, logSectors, status
+            long id = byteBuffer.getInt();
+            long status = byteBuffer.getInt();
+            long checkSum = byteBuffer.getLong();
+
+            meta[0] = id;
+            meta[1] = status;
+            meta[2] = checkSum;
+
+            ret = 1;
+            System.out.println("transID: " + id);
+            System.out.println("status: " + status);
+            System.out.println("checksum: " + checkSum);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -321,6 +377,47 @@ public class Transaction {
         return ret;
     }
 
+    public int writeCommit(byte buffer[])
+    throws IllegalArgumentException
+     {
+        checkBuffer(buffer, 1);
+
+        // fill 0
+        Arrays.fill(buffer, (byte)0);
+
+        int ret = -1;
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
+             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+            lock.lock();
+
+             ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+            byteBuffer.order(ByteOrder.BIG_ENDIAN); // 根据需要选择字节序
+            
+
+            // 序列化 transID
+            byteBuffer.putInt(transID.toInt()); // 再写入 transID 的数据
+            byteBuffer.putInt(status);
+
+
+            // 计算checksum写入
+            CRC32 crc32 = new CRC32();
+            for (int sectorNum : sectorNumList) {
+                checkBuffer(sectorWriteRecords.get(sectorNum), 1);
+                crc32.update(sectorWriteRecords.get(sectorNum), 0, Disk.SECTOR_SIZE);
+            }
+            checkSum = crc32.getValue();
+            byteBuffer.putLong(checkSum);
+
+            ret = 1;
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            lock.unlock();
+        }
+        return ret;
+    }
+
+
     //
     // Parse k+2 sectors from disk (header + k update sectors + commit).
     // If this is a committed transaction, construct a
@@ -366,73 +463,4 @@ public class Transaction {
 
         return null;
     }
-
-    public int writeLogBytes(byte buffers[][])
-    throws IllegalArgumentException
-    {
-        int ret = logSectors + 2;
-
-        if (status != COMMITTED) {
-            return -1;
-        }
-
-        if (buffers.length != logSectors + 2) {
-            throw new IllegalArgumentException("Bad buffers");
-        }
-
-        for (byte[] buffer : buffers) {
-            checkBuffer(buffer, 1);
-            // fill 0
-            Arrays.fill(buffer, (byte)0);
-        }
-
-
-        try {
-            lock.lock();
-
-            // 写入header
-            // 可重入锁
-            writeHeader(buffers[0]);
-
-            // 复制written sectors
-            int index =1;
-            for (int secNum : sectorNumList) {
-                System.arraycopy(sectorWriteRecords.get(secNum), 0, buffers[index], 0, Disk.SECTOR_SIZE);
-                ++index;
-            }
-
-            // 写入一个commit sector
-            // 具体需要保存什么未知，考虑后决定写入（事务id，状态，校验和）
-
-            // 计算指定范围内数据的 CRC32 校验和
-            CRC32 crc32 = new CRC32();
-            for (int i = 0; i <= logSectors; ++i) {
-                crc32.update(buffers[i], 0, Disk.SECTOR_SIZE);
-            }
-            checkSum = crc32.getValue();
-
-           
-            ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            ObjectOutputStream oos = new ObjectOutputStream(bos);
-
-            oos.writeObject(transID);
-            oos.writeInt(status);
-            oos.writeLong(checkSum);
-            byte[] serializedBytes = bos.toByteArray();
-            // 确保目标数组足够大
-            if (buffers[buffers.length - 1].length < serializedBytes.length) {
-                throw new IllegalArgumentException("目标数组长度不足以存储序列化后的对象。");
-            }
-            // 将序列化后的字节复制到目标数组
-            System.arraycopy(serializedBytes, 0, buffers[buffers.length - 1], 0, serializedBytes.length);
-        } catch (IOException e) {
-            e.printStackTrace();
-            ret = -1;
-        } finally {
-            lock.unlock();
-        }
-
-        return ret;
-    }
-
 }
