@@ -10,9 +10,10 @@
  *
  */
 
+import java.io.Serializable;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class TransID{
+public class TransID implements Serializable {
 
   //
   // Implement this class
@@ -26,5 +27,9 @@ public class TransID{
     transID = nextTransID.getAndIncrement();
   }
 
+  public int toInt() 
+  {
+    return transID;
+  }
   
 }
