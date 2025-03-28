@@ -59,12 +59,10 @@ public class LogStatus{
 
         try {
             lock.lock();
-            while (logLength < nSectors) {
-                freeSpace.awaitUninterruptibly();
-            }
             start = tail;
             tail = (tail + nSectors) % Disk.REDO_LOG_SECTORS;
             logLength -= nSectors;
+            freeSpace.signalAll();
         } finally {
             lock.unlock();
         }
@@ -123,7 +121,7 @@ public class LogStatus{
         } finally {
             lock.unlock();
         }
-        
+
         return start;
     }
     
