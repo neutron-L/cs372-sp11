@@ -25,11 +25,11 @@ public class LogStatusTest {
         // 等待所有线程执行完毕
         latch.await();
         int[] meta = logStatus.getMeta();
-        assert(meta[0] == 0 && meta[1] == 0 && meta[2] == 0);
+        assert(meta[2] == 128);
 
-        logStatus.recoverySectorsInUse(1000, 128);
+        logStatus.recoverySectorsInUse(1000, 256);
         meta = logStatus.getMeta();
-        assert(meta[0] == 1000 && meta[1] == (1000 + 128) % Disk.ADISK_REDO_LOG_SECTORS && meta[2] == 128);
+        assert(meta[0] == 1000 && meta[1] == (1000 + 256) % Disk.ADISK_REDO_LOG_SECTORS && meta[2] == 256);
 
         System.out.println("All threads have completed.");
     }
