@@ -17,7 +17,7 @@ public class ActiveTransactionList{
     /*
      * You can alter or add to these suggested methods.
      */
-    private LinkedList<String> transactions;
+    private LinkedList<Transaction> transactions;
     private SimpleLock lock;
 
     public ActiveTransactionList() {
