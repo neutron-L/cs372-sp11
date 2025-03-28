@@ -12,7 +12,9 @@ public class TransactionTest {
         Transaction transaction = new Transaction();
         
         testMeta(transaction);
-        testRW(transaction, 20);
+        testRW(transaction, 100);
+
+        transaction = new Transaction();
         testHeaderParse(transaction, 5);
         System.out.println("All threads have completed.");
     }

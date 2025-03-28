@@ -11,8 +11,6 @@
  *
  */
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
@@ -254,16 +252,26 @@ public class Transaction {
             ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
             byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
 
-            // 读取 TransID 对象
-            // 读取 LinkedList<Integer> 对象
-             // 读取 logStart, logSectors, status
+            // 读取 TransID 对象 logStart, logSectors, status
             int id = byteBuffer.getInt();
-             int logStart = byteBuffer.getInt();
-             int logSectors = byteBuffer.getInt();
-             int status = byteBuffer.getInt();
+            int logStart = byteBuffer.getInt();
+            int logSectors = byteBuffer.getInt();
+            int status = byteBuffer.getInt();
 
+            // 读取 LinkedList<Integer> 对象
+            LinkedList<Integer> secLinkedList = new LinkedList<>();
+            int totSector = byteBuffer.getInt();
+            for (int i = 0; i < totSector; ++i) {
+                secLinkedList.add(byteBuffer.getInt());
+            }
             ret = logSectors + 2;
+
             System.out.println("transID: " + id);
+            System.out.print("sector number " + totSector + ": ");
+            for (int i = 0; i < totSector; ++i) {
+                System.out.print(secLinkedList.get(i) + " ");
+            }
+            System.out.println();
             System.out.println("start: " + logStart);
             System.out.println("log sectors: " + logSectors);
             System.out.println("status: " + status);
@@ -288,22 +296,21 @@ public class Transaction {
 
              ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
             byteBuffer.order(ByteOrder.BIG_ENDIAN); // 根据需要选择字节序
+            
 
             // 序列化 transID
             byteBuffer.putInt(transID.toInt()); // 再写入 transID 的数据
+
 
             // 序列化 logStart, logSectors, status
             byteBuffer.putInt(logStart);
             byteBuffer.putInt(logSectors);
             byteBuffer.putInt(status);
 
-            // 如果需要序列化 sectorNumList，可以按如下方式（注意：这会改变数据结构）
-            // 但为了与 parseHeader 方法匹配，这里暂时不序列化它
-            /*
-            byte[] listBytes = serializeList(sectorNumList);
-            byteBuffer.putInt(listBytes.length);
-            byteBuffer.put(listBytes);
-            */
+            byteBuffer.putInt(sectorNumList.size());
+            for (int secnum : sectorNumList) {
+                byteBuffer.putInt(secnum);
+            }
 
             ret = 1;
         } catch (IOException e) {
