@@ -15,6 +15,8 @@ import java.io.ObjectInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -248,24 +250,24 @@ public class Transaction {
     //
     public static int parseHeader(byte buffer[]){
         int ret = -1;
-        try (ByteArrayInputStream bis = new ByteArrayInputStream(buffer);
-            ObjectInputStream ois = new ObjectInputStream(bis)) {
-            // 读取 TransID 对象
-            TransID transID = (TransID) ois.readObject();
-            // 读取 LinkedList<Integer> 对象
-            LinkedList<Integer> linkedList = (LinkedList<Integer>) ois.readObject();
-            // 读取一个 int 值
-            int start = ois.readInt();
-            int totLogSectors = ois.readInt();
-            int status = ois.readInt();
+        try {
+            ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+            byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
 
-            ret = totLogSectors + 2;
-            System.out.println("transID: " + transID.toInt());
-            System.out.println("LinkedList<Integer> 对象: " + linkedList);
-            System.out.println("start: " + start);
-            System.out.println("log sectors: " + totLogSectors);
+            // 读取 TransID 对象
+            // 读取 LinkedList<Integer> 对象
+             // 读取 logStart, logSectors, status
+            int id = byteBuffer.getInt();
+             int logStart = byteBuffer.getInt();
+             int logSectors = byteBuffer.getInt();
+             int status = byteBuffer.getInt();
+
+            ret = logSectors + 2;
+            System.out.println("transID: " + id);
+            System.out.println("start: " + logStart);
+            System.out.println("log sectors: " + logSectors);
             System.out.println("status: " + status);
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         return ret;
@@ -284,19 +286,25 @@ public class Transaction {
              ObjectOutputStream oos = new ObjectOutputStream(bos)) {
             lock.lock();
 
-            oos.writeObject(transID);
-            oos.writeObject(sectorNumList);
-            oos.writeInt(logStart);
-            oos.writeInt(logSectors);
-            oos.writeInt(status);
+             ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+            byteBuffer.order(ByteOrder.BIG_ENDIAN); // 根据需要选择字节序
 
-            byte[] serializedBytes = bos.toByteArray();
-            // 确保目标数组足够大
-            if (buffer.length < serializedBytes.length) {
-                throw new IllegalArgumentException("目标数组长度不足以存储序列化后的对象。");
-            }
-            // 将序列化后的字节复制到目标数组
-            System.arraycopy(serializedBytes, 0, buffer, 0, serializedBytes.length);
+            // 序列化 transID
+            byteBuffer.putInt(transID.toInt()); // 再写入 transID 的数据
+
+            // 序列化 logStart, logSectors, status
+            byteBuffer.putInt(logStart);
+            byteBuffer.putInt(logSectors);
+            byteBuffer.putInt(status);
+
+            // 如果需要序列化 sectorNumList，可以按如下方式（注意：这会改变数据结构）
+            // 但为了与 parseHeader 方法匹配，这里暂时不序列化它
+            /*
+            byte[] listBytes = serializeList(sectorNumList);
+            byteBuffer.putInt(listBytes.length);
+            byteBuffer.put(listBytes);
+            */
+
             ret = 1;
         } catch (IOException e) {
             e.printStackTrace();

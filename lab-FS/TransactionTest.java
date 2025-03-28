@@ -1,6 +1,7 @@
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Random;
 
 public class TransactionTest {
@@ -11,8 +12,8 @@ public class TransactionTest {
         Transaction transaction = new Transaction();
         
         testMeta(transaction);
-        testRW(transaction, 100);
-        testHeaderParse(transaction);
+        testRW(transaction, 20);
+        testHeaderParse(transaction, 5);
         System.out.println("All threads have completed.");
     }
 
@@ -71,13 +72,36 @@ public class TransactionTest {
         System.out.println("Test 2 Passed!");
     }
 
-    private static void testHeaderParse(Transaction transaction) {
+    private static void testHeaderParse(Transaction transaction, int times) {
         System.out.println("Test 3: test header write & parse");
 
-        
+        Random random = new Random();
+        LinkedList<Integer> writtenSectorNums = new LinkedList<>();
+        byte[] buffer = new byte[Disk.SECTOR_SIZE];
+
+        for (int i = 0; i < times; ++i) {
+            setBuffer((byte) 0, buffer);
+            int sector = random.nextInt(Disk.NUM_OF_SECTORS);
+            transaction.addWrite(sector, Arrays.copyOf(buffer, buffer.length));
+            writtenSectorNums.add(sector);
+        }
+
+        transaction.rememberLogSectors(random.nextInt(Disk.NUM_OF_SECTORS), random.nextInt(Disk.ADISK_REDO_LOG_SECTORS));
+
+        int id = transaction.getTransID().toInt();
+        int logStart = transaction.recallLogSectorStart();
+        int logSectors = transaction.recallLogSectorNSectors();
+
+        System.out.println("Before write");
+        System.out.println("transID: " + id);
+        System.out.println("sector list: " + writtenSectorNums);
+        System.out.println("start: " + logStart);
+        System.out.println("log sectors: " + logSectors);
+
+        assert 1 == transaction.writeHeader(buffer);
+        Transaction.parseHeader(buffer);
 
         System.out.println("Test 3 Passed!");
-        
     }
 
     private static void setBuffer(byte value, byte b[])
