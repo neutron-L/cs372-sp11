@@ -27,6 +27,10 @@ public class TransID implements Serializable {
     transID = nextTransID.getAndIncrement();
   }
 
+  public TransID(int id) {
+    transID = id;
+  }
+
   public int toInt() 
   {
     return transID;
