@@ -12,6 +12,14 @@
  * (C) 2011 Mike Dahlin
  *
  */
+
+import java.util.concurrent.locks.Condition;
+
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
+
 public class LogStatus{
     private int head;
     private int tail;
@@ -19,11 +27,22 @@ public class LogStatus{
     private SimpleLock lock;
     private Condition freeSpace;
 
+    private static final Logger LOGGER = Logger.getLogger(LogStatusTest.class.getName());
+
     public LogStatus() {
         lock = new SimpleLock();
         freeSpace = lock.newCondition();
         head = tail = 0;
         logLength = 0;
+
+          // 设置日志级别为 FINE，用于调试信息输出
+        LOGGER.setLevel(Level.WARNING);
+
+        // 添加控制台处理器
+        ConsoleHandler consoleHandler = new ConsoleHandler();
+        consoleHandler.setLevel(Level.FINE);
+        consoleHandler.setFormatter(new SimpleFormatter());
+        LOGGER.addHandler(consoleHandler);
     }
 
     // 
@@ -36,11 +55,12 @@ public class LogStatus{
 
         try {
             lock.lock();
-            while (logLength < nSectors) {
+            while (Disk.ADISK_REDO_LOG_SECTORS - logLength < nSectors) {
                 freeSpace.awaitUninterruptibly();
             }
             start = head;
-            head = (head + nSectors) % Disk.REDO_LOG_SECTORS;
+            LOGGER.fine(Thread.currentThread().getName() + String.format(" reserve: tail = %d; head = %d; logLength = %d", tail, head, logLength));
+            head = (head + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
             logLength += nSectors;
         } finally {
             lock.unlock();
@@ -59,8 +79,9 @@ public class LogStatus{
 
         try {
             lock.lock();
+            LOGGER.fine(Thread.currentThread().getName() + String.format(" writeBack: tail = %d; head = %d; logLength = %d", tail, head, logLength));
             start = tail;
-            tail = (tail + nSectors) % Disk.REDO_LOG_SECTORS;
+            tail = (tail + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
             logLength -= nSectors;
             freeSpace.signalAll();
         } finally {
@@ -78,8 +99,9 @@ public class LogStatus{
     public void recoverySectorsInUse(int startSector, int nSectors)
     {
         try {
-            start = startSector;
-            tail = (start + nSectors) % Disk.REDO_LOG_SECTORS;
+            lock.lock();
+            tail = startSector;
+            head = (startSector + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
             logLength = nSectors;
         } finally {
             lock.unlock();
@@ -124,5 +146,21 @@ public class LogStatus{
 
         return start;
     }
-    
+
+
+    // FOR TEST!!
+    public int[] getMeta() {
+        int[] ret = new int[3];
+
+        try {
+            lock.lock();
+            ret[0] = tail;
+            ret[1] = head;
+            ret[2] = logLength;
+        } finally {
+            lock.unlock();
+        }
+
+        return ret;
+    }
 }
