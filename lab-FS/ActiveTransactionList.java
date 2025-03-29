@@ -13,6 +13,11 @@
 import java.util.LinkedList;
 import java.util.concurrent.locks.Condition;
 
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
+
 public class ActiveTransactionList{
 
     /*
@@ -22,10 +27,22 @@ public class ActiveTransactionList{
     private SimpleLock lock;
     private Condition notFull;
 
+    private static final Logger LOGGER = Logger.getLogger(LogStatusTest.class.getName());
+
+
     public ActiveTransactionList() {
         transactions = new LinkedList<>();
         lock = new SimpleLock();
         notFull = lock.newCondition();
+
+         // 设置日志级别为 FINE，用于调试信息输出
+         LOGGER.setLevel(Level.FINE);
+
+         // 添加控制台处理器
+         ConsoleHandler consoleHandler = new ConsoleHandler();
+         consoleHandler.setLevel(Level.FINE);
+         consoleHandler.setFormatter(new SimpleFormatter());
+         LOGGER.addHandler(consoleHandler);
     }
 
     public void put(Transaction trans){
@@ -44,11 +61,12 @@ public class ActiveTransactionList{
 
     public Transaction get(TransID tid){
         Transaction trans = null;
+        // LOGGER.fine(String.format(" try get tid = %d", tid.toInt()));
 
         try {
             lock.lock();
             for (Transaction elem : transactions) {
-                if (elem.getTransID() == tid) {
+                if (elem.getTransID().equals(tid)) {
                     trans = elem;
                     break;
                 }
@@ -68,7 +86,7 @@ public class ActiveTransactionList{
         try {
             lock.lock();
             for (Transaction elem : transactions) {
-                if (elem.getTransID() == tid) {
+                if (elem.getTransID().equals(tid)) {
                     trans = elem;
                     break;
                 }
@@ -76,18 +94,13 @@ public class ActiveTransactionList{
             }
 
             if (trans != null) {
+                transactions.remove(index);
                 notFull.signalAll();
             }
         } finally {
             lock.unlock();
         }
         // System.exit(-1); // TBD
-        if (trans != null) {
-            transactions.remove(index);
-        }
-
         return trans;
     }
-
-
 }

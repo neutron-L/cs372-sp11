@@ -65,6 +65,24 @@ public class Transaction {
         LOGGER.addHandler(consoleHandler);
     }
 
+    // for test
+    public Transaction(TransID transID) {
+        this.transID = transID;
+        lock = new SimpleLock();
+        status = INPROGRESS;
+        sectorNumList = new LinkedList<>();
+        sectorWriteRecords = new LinkedHashMap<>();
+
+        // 设置日志级别为 FINE，用于调试信息输出
+        LOGGER.setLevel(Level.FINE);
+
+        // 添加控制台处理器
+        ConsoleHandler consoleHandler = new ConsoleHandler();
+        consoleHandler.setLevel(Level.FINE);
+        consoleHandler.setFormatter(new SimpleFormatter());
+        LOGGER.addHandler(consoleHandler);
+    }
+    // for recovery
     public Transaction(TransactionHeader header, LinkedHashMap<Integer, byte[]> sectorWriteRecords) {
         this.transID = header.transID;
         this.logStart = header.logStart;
