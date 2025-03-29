@@ -35,7 +35,7 @@ public class LogStatus{
         head = tail = 0;
         logLength = 0;
 
-          // 设置日志级别为 FINE，用于调试信息输出
+        // 设置日志级别为 FINE，用于调试信息输出
         LOGGER.setLevel(Level.WARNING);
 
         // 添加控制台处理器
