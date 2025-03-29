@@ -17,6 +17,7 @@ public class TransactionTest {
         transaction = new Transaction();
         testHeaderParse(transaction, 5);
         testCommitParse(transaction);
+        testTransactionParse(transaction);
         System.out.println("All threads have completed.");
     }
 
@@ -102,7 +103,7 @@ public class TransactionTest {
         System.out.println("log sectors: " + logSectors);
 
         assert 1 == transaction.writeHeader(buffer);
-        Transaction.parseHeader(buffer);
+        Transaction.parseHeader(buffer, null);
 
         System.out.println("Test 3 Passed!");
     }
@@ -126,6 +127,25 @@ public class TransactionTest {
         System.out.printf("checksum: %d\n", meta[2]);
 
         System.out.println("Test 4 Passed!");
+    }
+
+    private static void testTransactionParse(Transaction transaction) {
+        System.out.println("Test 5: test transaction write & parse");
+
+        // 测试当预留的日志扇区不够时，无法构造写入日志的扇区数组
+        int totUpdatedSector = transaction.getNUpdatedSectors();
+        transaction.rememberLogSectors(12, totUpdatedSector);
+        assert transaction.getSectorsForLog() == null;
+
+        transaction.rememberLogSectors(12, totUpdatedSector + 2);
+        byte[] transLog = transaction.getSectorsForLog();
+        assert transLog != null;
+
+        Transaction copyTransaction = Transaction.parseLogBytes(transLog);
+        assert copyTransaction != null;
+        byte[] copyTransLog = copyTransaction.getSectorsForLog();
+        assert Arrays.equals(copyTransLog, transLog) && copyTransLog.length == transLog.length;
+        System.out.println("Test 5 Passed!");
     }
 
     private static void setBuffer(byte value, byte b[])
