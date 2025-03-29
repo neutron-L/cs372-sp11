@@ -30,8 +30,9 @@ public class ADisk {
   private LogStatus logStatus;
   private CallbackTracker callbackTracker;
   private Disk disk;
-  private SimpleLock lock;
-  private Condition writeBackCond;
+  // internal class都做了并发控制，貌似不需要控制并发了
+  // private SimpleLock lock;
+  // private Condition writeBackCond;
 
   // -------------------------------------------------------
   //
@@ -78,14 +79,9 @@ public class ADisk {
   //
   // -------------------------------------------------------
   public TransID beginTransaction() {
-    try {
       Transaction transaction = new Transaction();
       activeTransactionList.put(transaction);
       return transaction.getTransID(); // Fixme
-    } finally {
-      lock.unlock();
-    }
-
   }
 
   // -------------------------------------------------------
@@ -126,9 +122,10 @@ public class ADisk {
     int logStart = 0, logSectors = 0;
 
     try {
-      lock.lock();
+      // lock.lock();
 
       Transaction transaction = activeTransactionList.remove(tid);
+
       if (transaction == null) {
         throw new IllegalArgumentException("Bad transaction id");
       }
@@ -172,13 +169,12 @@ public class ADisk {
 
       // transact移入写回队列
       writeBackList.addCommitted(transaction);
-      writeBackCond.signal();
       // 在运行过程中不更新磁盘中的log status的head位置
       // tail由writeback线程负责更新，并作为start point
     } catch (Exception e) {
       e.printStackTrace();
-    } finally {
-      lock.unlock();
+    // } finally {
+      // lock.unlock();
     }
   }
 
@@ -195,7 +191,7 @@ public class ADisk {
   public void abortTransaction(TransID tid)
       throws IllegalArgumentException {
     try {
-      lock.lock();
+      // lock.lock();
 
       Transaction transaction = activeTransactionList.remove(tid);
       if (transaction == null) {
@@ -204,8 +200,8 @@ public class ADisk {
       transaction.abort();
     } catch (Exception e) {
       e.printStackTrace();
-    } finally {
-      lock.unlock();
+    // } finally {
+      // lock.unlock();
     }
 
   }
@@ -235,8 +231,8 @@ public class ADisk {
   public void readSector(TransID tid, int sectorNum, byte buffer[])
       throws IOException, IllegalArgumentException,
       IndexOutOfBoundsException {
-    try {
-      lock.lock();
+    // try {
+      // lock.lock();
 
       if (sectorNum < 0 || sectorNum >= Disk.NUM_OF_SECTORS) {
         throw new IndexOutOfBoundsException("Bad sec num");
@@ -254,9 +250,9 @@ public class ADisk {
       }
       // 查写回队列
       writeBackList.checkRead(sectorNum, buffer);
-    } finally {
-      lock.unlock();
-    }
+    // } finally {
+      // lock.unlock();
+    // }
   }
 
   // -------------------------------------------------------
@@ -281,8 +277,8 @@ public class ADisk {
   public void writeSector(TransID tid, int sectorNum, byte buffer[])
       throws IllegalArgumentException,
       IndexOutOfBoundsException {
-    try {
-      lock.lock();
+    // try {
+      // lock.lock();
 
       if (sectorNum < 0 || sectorNum >= Disk.NUM_OF_SECTORS) {
         throw new IndexOutOfBoundsException("Bad sec num");
@@ -296,9 +292,9 @@ public class ADisk {
       }
 
       transaction.addWrite(sectorNum, buffer);
-    } finally {
-      lock.unlock();
-    }
+    // } finally {
+      // lock.unlock();
+    // }
   }
 
 }
