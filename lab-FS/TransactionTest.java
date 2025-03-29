@@ -82,6 +82,8 @@ public class TransactionTest {
             assert Arrays.equals(buffer, buf);
             ++index;
         }
+
+        assert bufferList.size() == transaction.getNUpdatedSectors();
         System.out.println("Test 2 Passed!");
     }
 

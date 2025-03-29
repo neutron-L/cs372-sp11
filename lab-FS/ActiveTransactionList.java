@@ -11,6 +11,7 @@
  */
 
 import java.util.LinkedList;
+import java.util.concurrent.locks.Condition;
 
 public class ActiveTransactionList{
 
@@ -19,15 +20,20 @@ public class ActiveTransactionList{
      */
     private LinkedList<Transaction> transactions;
     private SimpleLock lock;
+    private Condition notFull;
 
     public ActiveTransactionList() {
         transactions = new LinkedList<>();
         lock = new SimpleLock();
+        notFull = lock.newCondition();
     }
 
     public void put(Transaction trans){
         try {
             lock.lock();
+            while (transactions.size() == Common.MAX_CONCURRENT_TRANSACTIONS) {
+                notFull.awaitUninterruptibly();;
+            }
             transactions.add(trans);
         } finally {
             lock.unlock();
@@ -67,6 +73,10 @@ public class ActiveTransactionList{
                     break;
                 }
                 ++index;
+            }
+
+            if (trans != null) {
+                notFull.signalAll();
             }
         } finally {
             lock.unlock();
