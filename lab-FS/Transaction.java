@@ -30,11 +30,12 @@ public class Transaction {
     //
     private final TransID transID;
     private SimpleLock lock;
-    private LinkedList<Integer> sectorNumList;
-    private LinkedHashMap<Integer, byte[]> sectorWriteRecords;
     private int logStart;
     private int logSectors;
     private int status;
+    private LinkedList<Integer> sectorNumList;
+
+    private LinkedHashMap<Integer, byte[]> sectorWriteRecords;
 
     // 用于构造commit sector
     private long checkSum;
@@ -47,15 +48,14 @@ public class Transaction {
         status = INPROGRESS;
     }
 
-    public Transaction(TransID transID, LinkedList<Integer> sectorNumList, 
-    LinkedHashMap<Integer, byte[]> sectorWriteRecords, int logStart, int logSectors, int status) {
-        this.transID = transID;
-        this.lock = new SimpleLock();
-        this.sectorNumList = sectorNumList;
+    public Transaction(TransactionHeader header, LinkedHashMap<Integer, byte[]> sectorWriteRecords) {
+        this.transID = header.transID;
+        this.logStart = header.logStart;
+        this.logSectors = header.logSectors;
+        this.status = header.status;
+        this.sectorNumList = header.sectorNumList;
         this.sectorWriteRecords = sectorWriteRecords;
-        this.logStart = logStart;
-        this.logSectors = logSectors;
-        this.status = status;
+        this.lock = new SimpleLock();
     }
 
     public void addWrite(int sectorNum, byte buffer[])
@@ -151,8 +151,11 @@ public class Transaction {
 
             // 写入commit sector
             // 具体需要保存什么未知，考虑后决定写入（事务id，状态，校验和）
-
-
+            writeCommit(commitBuffer);
+            offset += Disk.SECTOR_SIZE;
+            assert logSectors == sectorNumList.size();
+            assert offset == (1 + logSectors) * Disk.SECTOR_SIZE;
+            System.arraycopy(headerBuffer, 0, transLog, offset, Disk.SECTOR_SIZE);
         } catch (IllegalArgumentException e) {
             e.printStackTrace();
             transLog = null;
@@ -275,7 +278,9 @@ public class Transaction {
     // log that should be read (including the
     // header and commit) to get the full transaction.
     //
-    public static int parseHeader(byte buffer[]) {
+    // 为了不修改返回值，把构造的header存入参数列表
+    public static int parseHeader(byte buffer[], TransactionHeader[] headerList) {
+        TransactionHeader header = null;
         int ret = -1;
         try {
             ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
@@ -294,6 +299,9 @@ public class Transaction {
                 secLinkedList.add(byteBuffer.getInt());
             }
             ret = logSectors + 2;
+            if (headerList != null && headerList.length > 0) {
+                headerList[0] = new TransactionHeader(new TransID(id), logStart, logSectors, status, secLinkedList);
+            }
 
             System.out.println("transID: " + id);
             System.out.print("sector number " + totSector + ": ");
@@ -400,12 +408,7 @@ public class Transaction {
 
 
             // 计算checksum写入
-            CRC32 crc32 = new CRC32();
-            for (int sectorNum : sectorNumList) {
-                checkBuffer(sectorWriteRecords.get(sectorNum), 1);
-                crc32.update(sectorWriteRecords.get(sectorNum), 0, Disk.SECTOR_SIZE);
-            }
-            checkSum = crc32.getValue();
+            checkSum = calculateCheckSum(sectorNumList, sectorWriteRecords);
             byteBuffer.putLong(checkSum);
 
             ret = 1;
@@ -424,43 +427,83 @@ public class Transaction {
     // committed transaction and return it. Otherwise
     // throw an exception or return null.
     public static Transaction parseLogBytes(byte buffer[]) {
-        // // 首先，验证其长度为sector size的整数倍
-        // if (buffer == null || buffer.length % Disk.SECTOR_SIZE != 0) {
-        //     return null;
-        // }
+        // 首先，验证其长度为sector size的整数倍
+        if (buffer == null || buffer.length % Disk.SECTOR_SIZE != 0) {
+            return null;
+        }
 
-        // try {
+        byte[] headerBuffer = new byte[Disk.SECTOR_SIZE];
+        byte[] commitBuffer = new byte[Disk.SECTOR_SIZE];
+        long[] meta = new long[3];
+        TransactionHeader[] headerArr = new TransactionHeader[1];
+        Transaction transaction = null;
+        int offset = 0;
+        int ret = 0;
+
+
+        System.arraycopy(buffer, 0, headerBuffer, 0, Disk.SECTOR_SIZE);
+        ret = parseHeader(headerBuffer, headerArr);
+        if (ret * Disk.SECTOR_SIZE != buffer.length) {
+            return null;
+        }
+
+        try {
+            // 读取commit sector并验证
+            System.arraycopy(buffer, (ret - 1) * Disk.SECTOR_SIZE, headerBuffer, 0, Disk.SECTOR_SIZE);
+            if (parseCommit(commitBuffer, meta) != 1 || !(meta[0] == (long)headerArr[0].transID.toInt() && meta[1] == (long)headerArr[0].status)) {
+                return transaction;
+            }
             
-        //     ByteArrayInputStream bis = new ByteArrayInputStream(buffer);
-        //     ObjectInputStream ois = new ObjectInputStream(bis)
+            // 构造HashMap
+            LinkedHashMap<Integer, byte[]> sectorWriteRecords = new LinkedHashMap<>();
+            for (int sectorNum : headerArr[0].sectorNumList) {
+                byte[] sector = new byte[Disk.SECTOR_SIZE];
+                offset += Disk.SECTOR_SIZE;
+                System.arraycopy(buffer, offset, sector, 0, Disk.SECTOR_SIZE);
+                sectorWriteRecords.put(sectorNum, sector);
+            }
+            assert offset == buffer.length - Disk.SECTOR_SIZE;
 
-        //     // 读取 TransID 对象
-        //     TransID transID = (TransID) ois.readObject();
-        //     // 读取 LinkedList<Integer> 对象
-        //     LinkedList<Integer> linkedList = (LinkedList<Integer>) ois.readObject();
-        //     // 读取一个 int 值
-        //     int start = ois.readInt();
-        //     int totLogSectors = ois.readInt();
-        //     int status = ois.readInt();
+            // 计算校验和
+            long checkSum = calculateCheckSum(headerArr[0].sectorNumList, sectorWriteRecords);
+            if (checkSum != meta[2]) {
+                return transaction;
+            }
 
-        //     ret = totLogSectors + 2;
-        //     System.out.println("transID: " + transID.toInt());
-        //     System.out.println("LinkedList<Integer> 对象: " + linkedList);
-        //     System.out.println("start: " + start);
-        //     System.out.println("log sectors: " + totLogSectors);
-        //     System.out.println("status: " + status);
-        // } catch (IOException | ClassNotFoundException e) {
-        //     e.printStackTrace();
-        // }
+            transaction = new Transaction(headerArr[0], sectorWriteRecords);
+        } catch (Exception e) {
+            e.printStackTrace();
+            transaction = null;
+        }
 
-        // this.transID = transID;
-        // this.lock = new SimpleLock();
-        // this.sectorNumList = sectorNumList;
-        // this.sectorWriteRecords = sectorWriteRecords;
-        // this.logStart = logStart;
-        // this.logSectors = logSectors;
-        // this.status = status;
+        return transaction;
+    }
 
-        return null;
+
+    private static long calculateCheckSum(LinkedList<Integer> sectorNumList,LinkedHashMap<Integer, byte[]> sectorWriteRecords ) {
+        CRC32 crc32 = new CRC32();
+        for (int sectorNum : sectorNumList) {
+            checkBuffer(sectorWriteRecords.get(sectorNum), 1);
+            crc32.update(sectorWriteRecords.get(sectorNum), 0, Disk.SECTOR_SIZE);
+        }
+        return crc32.getValue();
+    }
+}
+
+
+class TransactionHeader {
+    public final TransID transID;
+    public SimpleLock lock;
+    public int logStart;
+    public int logSectors;
+    public int status;
+    public LinkedList<Integer> sectorNumList;
+
+    TransactionHeader(TransID transID, int logStart, int logSectors, int status, LinkedList<Integer> sectorNumList) {
+        this.transID = transID;
+        this.logStart = logStart;
+        this.logSectors = logSectors;
+        this.status = status;
+        this.sectorNumList = sectorNumList;
     }
 }

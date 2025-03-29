@@ -16,6 +16,7 @@ public class TransactionTest {
 
         transaction = new Transaction();
         testHeaderParse(transaction, 5);
+        testCommitParse(transaction);
         System.out.println("All threads have completed.");
     }
 
@@ -104,6 +105,27 @@ public class TransactionTest {
         Transaction.parseHeader(buffer);
 
         System.out.println("Test 3 Passed!");
+    }
+    private static void testCommitParse(Transaction transaction) {
+        System.out.println("Test 4: test commit write & parse");
+
+        byte[] buffer = new byte[Disk.SECTOR_SIZE];
+
+        int id = transaction.getTransID().toInt();
+
+        System.out.println("Before write");
+        System.out.println("transID: " + id);
+
+        assert 1 == transaction.writeCommit(buffer);
+
+        long[] meta = new long[3];
+        Transaction.parseCommit(buffer, meta);
+        System.out.println("After parse");
+        System.out.println("transID: " + meta[0]);
+        System.out.println("status: " + meta[1]);
+        System.out.printf("checksum: %d\n", meta[2]);
+
+        System.out.println("Test 4 Passed!");
     }
 
     private static void setBuffer(byte value, byte b[])
