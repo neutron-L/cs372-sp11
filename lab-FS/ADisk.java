@@ -7,6 +7,8 @@
  * (C) 2007, 2010 Mike Dahlin
  *
  */
+
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
 public class ADisk{
@@ -16,6 +18,19 @@ public class ADisk{
   //-------------------------------------------------------
   public static final int REDO_LOG_SECTORS = 1024;
 
+  // 一些磁盘分区的定义，包括super block、log region的范围定义
+
+  //-------------------------------------------------------
+  // member variables
+  //-------------------------------------------------------
+  private ActiveTransactionList activeTransactionList;
+  private WriteBackList writeBackList;
+  private LogStatus logStatus;
+  private CallbackTracker callbackTracker;
+  private Disk disk;
+  private SimpleLock lock;
+
+  
   //-------------------------------------------------------
   //
   // Allocate an ADisk that stores its data using
@@ -31,6 +46,16 @@ public class ADisk{
   //-------------------------------------------------------
   public ADisk(boolean format)
   {
+    try {
+      activeTransactionList = new ActiveTransactionList();
+      writeBackList = new WriteBackList();
+      logStatus = new LogStatus();
+      callbackTracker = new CallbackTracker();
+      disk = new Disk(callbackTracker);
+      lock = new SimpleLock();
+    } catch (FileNotFoundException e) {
+      e.printStackTrace();
+    }
   }
 
   //-------------------------------------------------------
@@ -53,7 +78,9 @@ public class ADisk{
   //-------------------------------------------------------
   public TransID beginTransaction()
   {
-    return null; // Fixme
+    Transaction transaction = new Transaction();
+    activeTransactionList.put(transaction);
+    return transaction.getTransID(); // Fixme
   }
 
   //-------------------------------------------------------
@@ -107,6 +134,15 @@ public class ADisk{
   public void abortTransaction(TransID tid) 
     throws IllegalArgumentException
   {
+    Transaction transaction = activeTransactionList.remove(tid);
+    if (transaction == null) {
+      throw new IllegalArgumentException("Bad transaction id");
+    }
+    try {
+      transaction.abort();
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
   }
 
 
