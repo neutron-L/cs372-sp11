@@ -12,8 +12,8 @@ public class ActiveTransactionListTest {
     // 只有id对应的事务存在操作才会成功
     // -------------------------------------------------------
     public static void main(String[] args) throws InterruptedException {
-        sequentialTest(3);
-        // concurrencyTest(6, 100);
+        sequentialTest(Common.MAX_CONCURRENT_TRANSACTIONS);
+        concurrencyTest(4, Common.MAX_CONCURRENT_TRANSACTIONS / 4);
         System.out.println("All Tests Passed!");
 
     }
@@ -49,6 +49,8 @@ public class ActiveTransactionListTest {
 
     private static void concurrencyTest(int threadCount, int times)
      throws InterruptedException {
+        System.out.println("Test 2: test concurrency op");
+
         ActiveTransactionList activeTransactionList = new ActiveTransactionList();
         CountDownLatch latch = new CountDownLatch(threadCount);
 
@@ -61,18 +63,18 @@ public class ActiveTransactionListTest {
 
         // 等待所有线程执行完毕
         latch.await();
-        System.out.println("All threads have completed.");
+        System.out.println("Test 2 Passed!");
     }
 
     private static void threadPutAndRemove(ActiveTransactionList activeTransactionList, CountDownLatch latch,
             int times) {
         try {
-            activeTransactionList.put(null);
             LinkedList<TransID> idList = new LinkedList<>();
 
             for (int i = 0; i < times; ++i) {
                 Transaction transaction = new Transaction();
                 activeTransactionList.put(transaction);
+
                 idList.add(transaction.getTransID());
             }
             Thread.sleep(ThreadLocalRandom.current().nextInt(1, 5) * 1000);
@@ -80,7 +82,7 @@ public class ActiveTransactionListTest {
             for (TransID transID : idList) {
                 assert activeTransactionList.remove(transID) != null;
             }
-        } catch (InterruptedException e) {
+        } catch (Exception e) {
             Thread.currentThread().interrupt();
         } finally {
             latch.countDown();
