@@ -62,16 +62,25 @@ public class TransactionTest {
         // 初始验证
         verifySectors.accept(writtenSectors);
 
+        LinkedList<byte[]> bufferList = new LinkedList<>();
         while (times-- > 0) {
             b = (byte) random.nextInt(Byte.MAX_VALUE + 1);
             setBuffer((byte) b, buffer);
             int sector = random.nextInt(Disk.NUM_OF_SECTORS);
+            bufferList.add(Arrays.copyOf(buffer, buffer.length));
             transaction.addWrite(sector, Arrays.copyOf(buffer, buffer.length));
             writtenSectors.put(sector, Arrays.copyOf(buffer, buffer.length));
 
             // 每次写入后验证
             verifySectors.accept(writtenSectors);
             assert(transaction.getNUpdatedSectors() == writtenSectors.size());
+        }
+
+        int index = 0;
+        for (byte[] buf : bufferList) {
+            transaction.getUpdateI(index, buffer);
+            assert Arrays.equals(buffer, buf);
+            ++index;
         }
         System.out.println("Test 2 Passed!");
     }
