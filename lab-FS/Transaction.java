@@ -139,10 +139,12 @@ public class Transaction {
 
     public void commit()
             throws IOException, IllegalArgumentException {
+        status = COMMITTED;
     }
 
     public void abort()
             throws IOException, IllegalArgumentException {
+        status = ABORTED;
     }
 
     //
@@ -289,6 +291,23 @@ public class Transaction {
 
         return i;
     }
+
+    // 获取第i个更新的扇区号（从0开始）
+    public int getUpdateISecNum(int i) {
+        if (i >= sectorNumList.size()) {
+            return -1;
+        }
+        try {
+            lock.lock();
+            i = sectorNumList.get(i);
+        } finally {
+            lock.unlock();
+        }
+
+        return i;
+    }
+
+
 
     public TransID getTransID() {
         return transID;
