@@ -141,10 +141,17 @@ public class TransactionTest {
         byte[] transLog = transaction.getSectorsForLog();
         assert transLog != null;
 
-        Transaction copyTransaction = Transaction.parseLogBytes(transLog);
-        assert copyTransaction != null;
-        byte[] copyTransLog = copyTransaction.getSectorsForLog();
-        assert Arrays.equals(copyTransLog, transLog) && copyTransLog.length == transLog.length;
+        Transaction transaction1 = Transaction.parseLogBytes(transLog);
+        assert transaction1 != null;
+        byte[] transLog1 = transaction1.getSectorsForLog();
+        assert Arrays.equals(transLog1, transLog) && transLog1.length == transLog.length;
+
+        transaction.rememberLogSectors(transaction.recallLogSectorStart() + 1, transaction.recallLogSectorNSectors());
+        byte[] transLog2 = transaction.getSectorsForLog();
+        assert !Arrays.equals(transLog2, transLog) && transLog2.length == transLog.length;
+        Transaction transaction2 = Transaction.parseLogBytes(transLog2);
+        assert transaction2.recallLogSectorStart() == transaction.recallLogSectorStart() && transaction2.recallLogSectorStart() == transaction1.recallLogSectorStart() + 1;
+
         System.out.println("Test 5 Passed!");
     }
 
