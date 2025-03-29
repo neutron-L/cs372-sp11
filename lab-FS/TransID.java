@@ -35,5 +35,21 @@ public class TransID implements Serializable {
   {
     return transID;
   }
-  
+
+  // 重写 equals 方法
+  @Override
+  public boolean equals(Object obj) {
+      // 检查是否为同一个引用
+      if (this == obj) {
+          return true;
+      }
+      // 检查对象是否为 null 或者类型不匹配
+      if (obj == null || getClass() != obj.getClass()) {
+          return false;
+      }
+      TransID other = (TransID) obj;
+      return transID == other.transID;
+  }
+
+    
 }
