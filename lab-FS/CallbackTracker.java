@@ -11,16 +11,19 @@
  */
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Vector;
 import java.util.Iterator;
 import java.util.concurrent.locks.Condition;
 
 public class CallbackTracker implements DiskCallback {
+    private HashSet<Integer> ignoreTags;
     private HashMap<Integer, DiskResult> doneTags;
     private SimpleLock lock;
     private Condition doneCond;
 
     public CallbackTracker() {
+        ignoreTags = new HashSet<>();
         doneTags = new HashMap<>();
         lock = new SimpleLock();
         doneCond = lock.newCondition();
@@ -31,8 +34,12 @@ public class CallbackTracker implements DiskCallback {
         // TBD
         try {
             lock.lock();
-            doneTags.put(result.getTag(), result);
-            doneCond.signalAll();
+            if (ignoreTags.contains(result.getTag())) {
+                ignoreTags.remove(result.getTag());
+            } else {
+                doneTags.put(result.getTag(), result);
+                doneCond.signalAll();
+            }
         } finally {
             lock.unlock();
         }
@@ -91,10 +98,24 @@ public class CallbackTracker implements DiskCallback {
     //
     public void dontWaitForTag(int tag) {
         // TBD
+        try {
+            lock.lock();
+            ignoreTags.add(tag);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public void dontWaitForTags(Vector<Integer> tags) {
         // TBD
+        try {
+            lock.lock();
+            for (Integer tag : tags) {
+                ignoreTags.add(tag);
+            }
+        } finally {
+            lock.unlock();
+        }
     }
 
 }
