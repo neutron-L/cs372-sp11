@@ -96,8 +96,8 @@ public class Transaction {
     public void addWrite(int sectorNum, byte buffer[])
             throws IllegalArgumentException,
             IndexOutOfBoundsException {
-        checkSectorNum(sectorNum, 0, Disk.NUM_OF_SECTORS);
-        checkBuffer(buffer, 1);
+        Common.checkSectorNum(sectorNum, 0, Disk.NUM_OF_SECTORS);
+        Common.checkBuffer(buffer, 1);
 
         try {
             lock.lock();
@@ -120,8 +120,8 @@ public class Transaction {
     public boolean checkRead(int sectorNum, byte buffer[])
             throws IllegalArgumentException,
             IndexOutOfBoundsException {
-        checkSectorNum(sectorNum, 0, Disk.NUM_OF_SECTORS);
-        checkBuffer(buffer, 1);
+        Common.checkSectorNum(sectorNum, 0, Disk.NUM_OF_SECTORS);
+        Common.checkBuffer(buffer, 1);
 
         boolean ret = false;
 
@@ -274,7 +274,7 @@ public class Transaction {
     // write in byte array. Used for writeback.
     //
     public int getUpdateI(int i, byte buffer[]) {
-        checkBuffer(buffer, 1);
+        Common.checkBuffer(buffer, 1);
 
         try {
             lock.lock();
@@ -282,6 +282,7 @@ public class Transaction {
             if (i < 0 || i >= sectorNumList.size()) {
                 i = -1;
             } else {
+                System.out.println("get i " + i);
                 i = sectorNumList.get(i);
                 System.arraycopy(sectorWriteRecords.get(i), 0, buffer, 0, Disk.SECTOR_SIZE);
             }
@@ -311,20 +312,6 @@ public class Transaction {
 
     public TransID getTransID() {
         return transID;
-    }
-
-    private static void checkSectorNum(int sectorNum, int start, int end)
-            throws IllegalArgumentException {
-        if (sectorNum < start || sectorNum >= end) {
-            throw new IndexOutOfBoundsException("Bad sector number");
-        }
-    }
-
-    private static void checkBuffer(byte[] buffer, int nSectors)
-            throws IllegalArgumentException {
-        if (buffer == null || buffer.length != nSectors * Disk.SECTOR_SIZE) {
-            throw new IllegalArgumentException("Bad buffer");
-        }
     }
 
     //
@@ -374,7 +361,7 @@ public class Transaction {
     }
 
     public static int parseCommit(byte buffer[], long[] meta) {
-        checkBuffer(buffer, 1);
+        Common.checkBuffer(buffer, 1);
 
         int ret = -1;
         try {
@@ -404,7 +391,7 @@ public class Transaction {
     public int writeHeader(byte buffer[])
     throws IllegalArgumentException
      {
-        checkBuffer(buffer, 1);
+        Common.checkBuffer(buffer, 1);
 
         // fill 0
         Arrays.fill(buffer, (byte)0);
@@ -444,7 +431,7 @@ public class Transaction {
     public int writeCommit(byte buffer[])
     throws IllegalArgumentException
      {
-        checkBuffer(buffer, 1);
+        Common.checkBuffer(buffer, 1);
 
         // fill 0
         Arrays.fill(buffer, (byte)0);
@@ -547,7 +534,7 @@ public class Transaction {
     private static long calculateCheckSum(LinkedList<Integer> sectorNumList,LinkedHashMap<Integer, byte[]> sectorWriteRecords ) {
         CRC32 crc32 = new CRC32();
         for (int sectorNum : sectorNumList) {
-            checkBuffer(sectorWriteRecords.get(sectorNum), 1);
+            Common.checkBuffer(sectorWriteRecords.get(sectorNum), 1);
             crc32.update(sectorWriteRecords.get(sectorNum), 0, Disk.SECTOR_SIZE);
         }
         return crc32.getValue();

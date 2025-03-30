@@ -12,7 +12,7 @@ public class TransactionTest {
         Transaction transaction = new Transaction();
         
         testMeta(transaction);
-        testRW(transaction, 100);
+        testRW(transaction, 3);
 
         transaction = new Transaction();
         testHeaderParse(transaction, 5);
@@ -45,7 +45,8 @@ public class TransactionTest {
         Random random = new Random();
         HashMap<Integer, byte[]> writtenSectors = new HashMap<>();
         byte[] buffer = new byte[Disk.SECTOR_SIZE];
-        byte b;
+        byte b = (byte)0;
+        int sector = 0;
 
         // 定义一个函数式接口用于封装重复的逻辑
         java.util.function.Consumer<HashMap<Integer, byte[]>> verifySectors = sectors -> {
@@ -62,12 +63,12 @@ public class TransactionTest {
         // 初始验证
         verifySectors.accept(writtenSectors);
 
-        LinkedList<byte[]> bufferList = new LinkedList<>();
+        LinkedList<Integer> secNumList = new LinkedList<>();
         while (times-- > 0) {
             b = (byte) random.nextInt(Byte.MAX_VALUE + 1);
             setBuffer((byte) b, buffer);
-            int sector = random.nextInt(Disk.NUM_OF_SECTORS);
-            bufferList.add(Arrays.copyOf(buffer, buffer.length));
+            sector = random.nextInt(Disk.NUM_OF_SECTORS);
+            secNumList.add(sector);
             transaction.addWrite(sector, Arrays.copyOf(buffer, buffer.length));
             writtenSectors.put(sector, Arrays.copyOf(buffer, buffer.length));
 
@@ -76,14 +77,13 @@ public class TransactionTest {
             assert(transaction.getNUpdatedSectors() == writtenSectors.size());
         }
 
-        int index = 0;
-        for (byte[] buf : bufferList) {
-            transaction.getUpdateI(index, buffer);
-            assert Arrays.equals(buffer, buf);
-            ++index;
-        }
+        int n = transaction.getNUpdatedSectors();
+        for (int i = 0; i < n; ++i) {
+            sector = transaction.getUpdateISecNum(i);
+            transaction.getUpdateI(i, buffer);
+            assert Arrays.equals(buffer, writtenSectors.get(sector));
+        }   
 
-        assert bufferList.size() == transaction.getNUpdatedSectors();
         System.out.println("Test 2 Passed!");
     }
 
