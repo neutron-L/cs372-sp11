@@ -74,7 +74,9 @@ public class CallbackTracker implements DiskCallback {
         try {
             lock.lock();
             while (tags.size() != 0) {
-                doneCond.awaitUninterruptibly();
+                if (!hasAvailableTags(tags)) {
+                    doneCond.awaitUninterruptibly();
+                }
                 Iterator<Integer> iterator = tags.iterator();
                 while (iterator.hasNext()) {
                     Integer tag = iterator.next();
@@ -88,6 +90,16 @@ public class CallbackTracker implements DiskCallback {
             lock.unlock();
         }
         return resultVec;
+    }
+
+     // 检查是否有可用的 tag
+     private boolean hasAvailableTags(Vector<Integer> tags) {
+        for (Integer tag : tags) {
+            if (doneTags.containsKey(tag)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     //
