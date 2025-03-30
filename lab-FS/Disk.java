@@ -214,7 +214,7 @@ public class Disk{
       else{
           assert(dr.getOperation() == WRITE);
           
-          ListIterator li = pending.listIterator(0);
+          ListIterator<DiskResult> li = pending.listIterator(0);
           while(li.nextIndex() <= skip){
               if(!li.hasNext() || ((DiskResult)(li.next())).getOperation() == BARRIER){
                   skip = 0;
