@@ -11,7 +11,6 @@
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Vector;
-import java.util.concurrent.locks.Condition;
 
 public class ADisk {
 
@@ -30,8 +29,10 @@ public class ADisk {
   private LogStatus logStatus;
   private CallbackTracker callbackTracker;
   private Disk disk;
+
+  private Vector<Integer> committedOrder;
   // internal class都做了并发控制，貌似不需要控制并发了
-  // private SimpleLock lock;
+  private SimpleLock lock;
   // private Condition writeBackCond;
 
   // -------------------------------------------------------
@@ -54,8 +55,14 @@ public class ADisk {
       logStatus = new LogStatus();
       callbackTracker = new CallbackTracker();
       disk = new Disk(callbackTracker);
+
       lock = new SimpleLock();
-      writeBackCond = lock.newCondition();
+      committedOrder = new Vector<>();
+      // 启动一个线程完成writeback工作
+      Thread writeBackThread = new Thread(() -> {
+        writeBack(writeBackList, disk, callbackTracker);
+      });
+      writeBackThread.start();
     } catch (FileNotFoundException e) {
       e.printStackTrace();
     }
@@ -79,9 +86,9 @@ public class ADisk {
   //
   // -------------------------------------------------------
   public TransID beginTransaction() {
-      Transaction transaction = new Transaction();
-      activeTransactionList.put(transaction);
-      return transaction.getTransID(); // Fixme
+    Transaction transaction = new Transaction();
+    activeTransactionList.put(transaction);
+    return transaction.getTransID(); // Fixme
   }
 
   // -------------------------------------------------------
@@ -117,14 +124,14 @@ public class ADisk {
   // -------------------------------------------------------
   public void commitTransaction(TransID tid)
       throws IOException, IllegalArgumentException {
-    int offset = 0;
+    Transaction transaction = null;
     int tag = 0;
     int logStart = 0, logSectors = 0;
 
     try {
       // lock.lock();
 
-      Transaction transaction = activeTransactionList.remove(tid);
+      transaction = activeTransactionList.remove(tid);
 
       if (transaction == null) {
         throw new IllegalArgumentException("Bad transaction id");
@@ -142,39 +149,53 @@ public class ADisk {
       Vector<Integer> tags = new Vector<>();
 
       byte[] headerBuffer = new byte[Disk.SECTOR_SIZE];
-      System.arraycopy(transLog, offset, headerBuffer, 0, Disk.SECTOR_SIZE);
-      tag = (transaction.getTransID().toInt() & 0xFFFF0000) | 0;
-      disk.startRequest(Disk.WRITE, tag, logStart, headerBuffer);
+      System.arraycopy(transLog, 0, headerBuffer, 0, Disk.SECTOR_SIZE);
+      tag = genTag(transaction.getTransID(), Disk.WRITE, logStart);
       tags.add(tag);
+      disk.startRequest(Disk.WRITE, tag, logStart, headerBuffer);
 
       // tag的构造方法直接采用transID + sec num，也能确保全局唯一和可读，header默认为0
       for (int i = 0; i < logSectors - 2; ++i) {
         byte[] buffer = new byte[Disk.SECTOR_SIZE];
         transaction.getUpdateI(i, buffer);
-        tag = (transaction.getTransID().toInt() & 0xFFFF0000) | transaction.getUpdateISecNum(i);
+        tag = genTag(transaction.getTransID(), Disk.WRITE, logStart + i + 1);
         tags.add(tag);
         disk.startRequest(Disk.WRITE, tag, logStart + i + 1, buffer);
       }
 
-      // 添加barrier, tag不重要
-      disk.startRequest(Disk.BARRIER, 0, 0, null);
+      // 添加barrier
+      disk.addBarrier();
 
-      // 最后写入commit sector, commit tag设为0xFF
-      tag = (transaction.getTransID().toInt() & 0xFFFF0000) | 0xFF;
+      // 最后写入commit sector
+      byte[] commitBuffer = new byte[Disk.SECTOR_SIZE];
+      System.arraycopy(transLog, (logSectors - 1) * Disk.SECTOR_SIZE, commitBuffer, 0, Disk.SECTOR_SIZE);
+      tag = genTag(transaction.getTransID(), Disk.WRITE, logStart + logSectors - 1);
       tags.add(tag);
-      disk.startRequest(Disk.WRITE, 0, logStart + logSectors - 1, null);
+      disk.startRequest(Disk.WRITE, tag, logStart + logSectors - 1, commitBuffer);
 
       // 这里持有锁等待，所有事务提交全变成顺序了
       callbackTracker.dontWaitForTags(tags);
 
-      // transact移入写回队列
-      writeBackList.addCommitted(transaction);
+      // committedOrder.add(transaction.getTransID().toInt());
+
+      // // transact移入写回队列
+      // writeBackList.addCommitted(transaction);
       // 在运行过程中不更新磁盘中的log status的head位置
       // tail由writeback线程负责更新，并作为start point
     } catch (Exception e) {
       e.printStackTrace();
-    // } finally {
+      // } finally {
       // lock.unlock();
+    }
+
+    try {
+      lock.lock();
+      committedOrder.add(transaction.getTransID().toInt());
+
+      // transact移入写回队列
+      writeBackList.addCommitted(transaction);
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -200,7 +221,7 @@ public class ADisk {
       transaction.abort();
     } catch (Exception e) {
       e.printStackTrace();
-    // } finally {
+      // } finally {
       // lock.unlock();
     }
 
@@ -232,26 +253,38 @@ public class ADisk {
       throws IOException, IllegalArgumentException,
       IndexOutOfBoundsException {
     // try {
-      // lock.lock();
+    // lock.lock();
 
-      if (sectorNum < 0 || sectorNum >= Disk.NUM_OF_SECTORS) {
-        throw new IndexOutOfBoundsException("Bad sec num");
-      }
-      if (buffer == null || buffer.length != Disk.SECTOR_SIZE) {
-        throw new IllegalArgumentException("Bad buffer");
-      }
-      Transaction transaction = activeTransactionList.get(tid);
-      if (transaction == null) {
-        throw new IllegalArgumentException("Bad transaction id");
-      }
-      // 首先查事务是否更新过该sector
-      if (transaction.checkRead(sectorNum, buffer)) {
-        return;
-      }
-      // 查写回队列
-      writeBackList.checkRead(sectorNum, buffer);
+    if (sectorNum < 0 || sectorNum >= Disk.NUM_OF_SECTORS) {
+      throw new IndexOutOfBoundsException("Bad sec num");
+    }
+    if (buffer == null || buffer.length != Disk.SECTOR_SIZE) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+    Transaction transaction = activeTransactionList.get(tid);
+    if (transaction == null) {
+      throw new IllegalArgumentException("Bad transaction id");
+    }
+    // 首先查事务是否更新过该sector
+    if (transaction.checkRead(sectorNum, buffer)) {
+      Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
+          "; read from own updated sectors");
+      return;
+    }
+    // 查写回队列
+    if (writeBackList.checkRead(sectorNum, buffer)) {
+      Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
+          "; read from write back list");
+      return;
+    }
+
+    // 向disk发起请求并等待
+    int tag = genTag(tid, Disk.READ, sectorNum);
+    disk.startRequest(Disk.READ, tag, sectorNum, buffer);
+
+    callbackTracker.waitForTag(tag);
     // } finally {
-      // lock.unlock();
+    // lock.unlock();
     // }
   }
 
@@ -278,23 +311,62 @@ public class ADisk {
       throws IllegalArgumentException,
       IndexOutOfBoundsException {
     // try {
-      // lock.lock();
+    // lock.lock();
 
-      if (sectorNum < 0 || sectorNum >= Disk.NUM_OF_SECTORS) {
-        throw new IndexOutOfBoundsException("Bad sec num");
-      }
-      if (buffer == null || buffer.length != Disk.SECTOR_SIZE) {
-        throw new IllegalArgumentException("Bad buffer");
-      }
-      Transaction transaction = activeTransactionList.get(tid);
-      if (transaction == null) {
-        throw new IllegalArgumentException("Bad trans id");
-      }
+    if (sectorNum < 0 || sectorNum >= Disk.NUM_OF_SECTORS) {
+      throw new IndexOutOfBoundsException("Bad sec num");
+    }
+    if (buffer == null || buffer.length != Disk.SECTOR_SIZE) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+    Transaction transaction = activeTransactionList.get(tid);
+    if (transaction == null) {
+      throw new IllegalArgumentException("Bad trans id");
+    }
 
-      transaction.addWrite(sectorNum, buffer);
+    Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum);
+    transaction.addWrite(sectorNum, buffer);
     // } finally {
-      // lock.unlock();
+    // lock.unlock();
     // }
+  }
+
+  public Vector<Integer> committedOrder() {
+    return committedOrder;
+  }
+
+  public static void writeBack(WriteBackList writeBackList, Disk disk, CallbackTracker callbackTracker) {
+    Transaction transaction = null;
+    int logSectors = 0;
+    int sectorNum = 0;
+    int tag = 0;
+
+    while (true) {
+      continue;
+      // transaction = writeBackList.getNextWriteback();
+      // // 将该事务的更新块写入磁盘，不必等待
+      // for (int i = 0; i < logSectors - 2; ++i) {
+      // try {
+      // byte[] buffer = new byte[Disk.SECTOR_SIZE];
+      // sectorNum = transaction.getUpdateISecNum(i);
+      // tag = genTag(transaction.getTransID(), Disk.WRITE, sectorNum);
+      // callbackTracker.dontWaitForTag(tag);
+      // disk.startRequest(Disk.WRITE, tag, sectorNum, buffer);
+      // } catch (Exception e) {
+      // e.printStackTrace();
+      // }
+      // }
+
+      // // 更新磁盘上的logstatus，必须等待，这里的写入必须是顺序的
+
+      // writeBackList.removeNextWriteback();
+    }
+  }
+
+  // 希望构造具有一定意义的tag
+  // 高16位为事务id，后8位为 R(0)/W(1)，后八位为扇区号
+  private static int genTag(TransID transID, int op, int sectorNum) {
+    return (transID.toInt() & 0xFFFF0000) | ((op & 0x1) << 8) | (sectorNum & 0xFF);
   }
 
 }
