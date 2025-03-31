@@ -81,6 +81,7 @@ public class LogStatus {
             LOGGER.fine(Thread.currentThread().getName()
                     + String.format(" writeBack: tail = %d; head = %d; logLength = %d", tail, head, logLength));
             start = tail;
+            assert tail == startSector;
             tail = (tail + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
             logLength -= nSectors;
             freeSpace.signalAll();

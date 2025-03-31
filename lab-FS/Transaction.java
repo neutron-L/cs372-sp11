@@ -26,9 +26,9 @@ import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
 public class Transaction {
-    private static final int INPROGRESS = 0xaabb;
-    private static final int COMMITTED = 0xaabc;
-    private static final int ABORTED = 0xaabd;
+    public static final int INPROGRESS = 0xaabb;
+    public static final int COMMITTED = 0xaabc;
+    public static final int ABORTED = 0xaabd;
 
     private static final Logger LOGGER = Logger.getLogger(LogStatusTest.class.getName());
 
@@ -319,7 +319,21 @@ public class Transaction {
     }
 
     public TransID getTransID() {
-        return transID;
+        try {
+            lock.lock();
+            return transID;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public int getStatus() {
+        try {
+            lock.lock();
+            return status;
+        } finally {
+            lock.unlock();
+        }
     }
 
     //
