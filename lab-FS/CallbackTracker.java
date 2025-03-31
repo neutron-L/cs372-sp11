@@ -74,7 +74,7 @@ public class CallbackTracker implements DiskCallback {
         try {
             lock.lock();
             while (tags.size() != 0) {
-                if (!hasAvailableTags(tags)) {
+                while (!hasAvailableTags(tags)) {
                     doneCond.awaitUninterruptibly();
                 }
                 Iterator<Integer> iterator = tags.iterator();
