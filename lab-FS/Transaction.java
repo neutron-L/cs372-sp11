@@ -138,12 +138,22 @@ public class Transaction {
 
     public void commit()
             throws IOException, IllegalArgumentException {
-        status = COMMITTED;
+        try {
+            lock.lock();
+            status = COMMITTED;
+        } finally {
+            lock.unlock();
+        }
     }
 
     public void abort()
             throws IOException, IllegalArgumentException {
-        status = ABORTED;
+        try {
+            lock.lock();
+            status = ABORTED;
+        } finally {
+            lock.unlock();
+        }
     }
 
     //
@@ -431,8 +441,7 @@ public class Transaction {
         Arrays.fill(buffer, (byte) 0);
 
         int ret = -1;
-        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+        try {
             lock.lock();
 
             ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
@@ -451,8 +460,6 @@ public class Transaction {
             // System.out.println("checksum: " + checkSum);
 
             ret = 1;
-        } catch (IOException e) {
-            e.printStackTrace();
         } finally {
             lock.unlock();
         }
