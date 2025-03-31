@@ -31,7 +31,7 @@ public class LogStatusTest {
         meta = logStatus.getMeta();
         assert(meta[0] == 1000 && meta[1] == (1000 + 256) % Disk.ADISK_REDO_LOG_SECTORS && meta[2] == 256);
 
-        System.out.println("All threads have completed.");
+        System.out.println("All Tests Passed!");
     }
 
     private static void performLogOperations(LogStatus logStatus, CountDownLatch latch, int times) {
@@ -42,7 +42,7 @@ public class LogStatusTest {
               // System.out.println(Thread.currentThread().getName() + " reserved sectors starting at: " + startSector + " with length: " + randomLength);
               int sleepTime = ThreadLocalRandom.current().nextInt(1, 5);
               Thread.sleep(sleepTime * 1000);
-              int result = logStatus.writeBackDone(startSector, randomLength);
+              logStatus.writeBackDone(startSector, randomLength);
               // System.out.println(Thread.currentThread().getName() + " write back done for sectors starting at: " + result);
           }
         } catch (InterruptedException e) {

@@ -18,7 +18,7 @@ public class TransactionTest {
         testHeaderParse(transaction, 5);
         testCommitParse(transaction);
         testTransactionParse(transaction);
-        System.out.println("All threads have completed.");
+        System.out.println("All Tests Passed!");
     }
 
     private static void testMeta(Transaction transaction) {
@@ -66,7 +66,7 @@ public class TransactionTest {
         LinkedList<Integer> secNumList = new LinkedList<>();
         while (times-- > 0) {
             b = (byte) random.nextInt(Byte.MAX_VALUE + 1);
-            setBuffer((byte) b, buffer);
+            Common.setBuffer((byte) b, buffer);
             sector = random.nextInt(Disk.NUM_OF_SECTORS);
             secNumList.add(sector);
             transaction.addWrite(sector, Arrays.copyOf(buffer, buffer.length));
@@ -95,7 +95,7 @@ public class TransactionTest {
         byte[] buffer = new byte[Disk.SECTOR_SIZE];
 
         for (int i = 0; i < times; ++i) {
-            setBuffer((byte) 0, buffer);
+            Common.setBuffer((byte) 0, buffer);
             int sector = random.nextInt(Disk.NUM_OF_SECTORS);
             transaction.addWrite(sector, Arrays.copyOf(buffer, buffer.length));
             writtenSectorNums.add(sector);
@@ -165,13 +165,4 @@ public class TransactionTest {
 
         System.out.println("Test 5 Passed!");
     }
-
-    private static void setBuffer(byte value, byte b[])
-    {
-        int ii;
-        for(ii = 0; ii < Disk.SECTOR_SIZE; ii++){
-            b[ii] = value;
-        }
-        return;
-  }
 }

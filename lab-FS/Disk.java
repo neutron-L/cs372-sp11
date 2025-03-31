@@ -216,7 +216,7 @@ public class Disk{
           
           ListIterator<DiskResult> li = pending.listIterator(0);
           while(li.nextIndex() <= skip){
-              if(!li.hasNext() || ((DiskResult)(li.next())).getOperation() == BARRIER){
+              if(!li.hasNext() || li.next().getOperation() == BARRIER){
                   skip = 0;
                   break;
               }

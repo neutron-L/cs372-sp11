@@ -18,7 +18,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
-public class ActiveTransactionList{
+public class ActiveTransactionList {
 
     /*
      * You can alter or add to these suggested methods.
@@ -29,37 +29,37 @@ public class ActiveTransactionList{
 
     private static final Logger LOGGER = Logger.getLogger(LogStatusTest.class.getName());
 
-
     public ActiveTransactionList() {
         transactions = new LinkedList<>();
         lock = new SimpleLock();
         notFull = lock.newCondition();
 
-         // 设置日志级别为 FINE，用于调试信息输出
-         LOGGER.setLevel(Level.FINE);
+        // 设置日志级别为 FINE，用于调试信息输出
+        LOGGER.setLevel(Level.WARNING);
 
-         // 添加控制台处理器
-         ConsoleHandler consoleHandler = new ConsoleHandler();
-         consoleHandler.setLevel(Level.FINE);
-         consoleHandler.setFormatter(new SimpleFormatter());
-         LOGGER.addHandler(consoleHandler);
+        // 添加控制台处理器
+        ConsoleHandler consoleHandler = new ConsoleHandler();
+        consoleHandler.setLevel(Level.FINE);
+        consoleHandler.setFormatter(new SimpleFormatter());
+        LOGGER.addHandler(consoleHandler);
     }
 
-    public void put(Transaction trans){
+    public void put(Transaction trans) {
         try {
             lock.lock();
             while (transactions.size() == Common.MAX_CONCURRENT_TRANSACTIONS) {
-                notFull.awaitUninterruptibly();;
+                notFull.awaitUninterruptibly();
+                ;
             }
             transactions.add(trans);
         } finally {
             lock.unlock();
         }
-        
+
         // System.exit(-1); // TBD
     }
 
-    public Transaction get(TransID tid){
+    public Transaction get(TransID tid) {
         Transaction trans = null;
         // LOGGER.fine(String.format(" try get tid = %d", tid.toInt()));
 
@@ -74,12 +74,12 @@ public class ActiveTransactionList{
         } finally {
             lock.unlock();
         }
-        
+
         // System.exit(-1); // TBD
         return trans;
     }
 
-    public Transaction remove(TransID tid){
+    public Transaction remove(TransID tid) {
         Transaction trans = null;
         int index = 0;
 

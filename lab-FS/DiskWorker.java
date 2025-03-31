@@ -10,7 +10,6 @@
  *
  */
 import java.io.RandomAccessFile;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 
 public class DiskWorker extends Thread{

@@ -20,7 +20,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
-public class LogStatus{
+public class LogStatus {
     private int head;
     private int tail;
     private int logLength;
@@ -45,12 +45,11 @@ public class LogStatus{
         LOGGER.addHandler(consoleHandler);
     }
 
-    // 
+    //
     // Return the index of the log sector where
     // the next transaction should go.
     //
-    public int reserveLogSectors(int nSectors)
-    {
+    public int reserveLogSectors(int nSectors) {
         int start = -1;
 
         try {
@@ -59,7 +58,8 @@ public class LogStatus{
                 freeSpace.awaitUninterruptibly();
             }
             start = head;
-            LOGGER.fine(Thread.currentThread().getName() + String.format(" reserve: tail = %d; head = %d; logLength = %d", tail, head, logLength));
+            LOGGER.fine(Thread.currentThread().getName()
+                    + String.format(" reserve: tail = %d; head = %d; logLength = %d", tail, head, logLength));
             head = (head + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
             logLength += nSectors;
         } finally {
@@ -70,16 +70,16 @@ public class LogStatus{
 
     //
     // The write back for the specified range of
-    // sectors is done. These sectors may be safely 
+    // sectors is done. These sectors may be safely
     // reused for future transactions. (Circular log)
     //
-    public int writeBackDone(int startSector, int nSectors)
-    {
+    public int writeBackDone(int startSector, int nSectors) {
         int start = -1;
 
         try {
             lock.lock();
-            LOGGER.fine(Thread.currentThread().getName() + String.format(" writeBack: tail = %d; head = %d; logLength = %d", tail, head, logLength));
+            LOGGER.fine(Thread.currentThread().getName()
+                    + String.format(" writeBack: tail = %d; head = %d; logLength = %d", tail, head, logLength));
             start = tail;
             tail = (tail + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
             logLength -= nSectors;
@@ -92,12 +92,11 @@ public class LogStatus{
 
     //
     // During recovery, we need to initialize the
-    // LogStatus information with the sectors 
+    // LogStatus information with the sectors
     // in the log that are in-use by committed
     // transactions with pending write-backs
     //
-    public void recoverySectorsInUse(int startSector, int nSectors)
-    {
+    public void recoverySectorsInUse(int startSector, int nSectors) {
         try {
             lock.lock();
             tail = startSector;
@@ -115,26 +114,26 @@ public class LogStatus{
     // should be "invisible" to everything above the
     // ADisk interface.) You should update this
     // on-disk information at appropriate times.
-    // Then, on recovery, you can read this information 
+    // Then, on recovery, you can read this information
     // to find out where to start processing the log from.
     //
     // NOTE: You can update this on-disk info
-    // when you fininish write-back for a transaction. 
+    // when you fininish write-back for a transaction.
     // But, you don't need to keep this on-disk
     // sector exactly in sync with the tail
     // of the log. It can point to a transaction
     // whose write-back is complete (there will
     // be a bit of repeated work on recovery, but
     // not a big deal.) On the other hand, you must
-    // make sure of three things: (1) it should always 
-    // point to a valid header record; (2) if a 
+    // make sure of three things: (1) it should always
+    // point to a valid header record; (2) if a
     // transaction T's write back is not complete,
     // it should point to a point no later than T's
     // header; (3) reserveLogSectors must block
     // until the on-disk log-start-point points past
     // the sectors about to be reserved/reused.
     //
-    public int logStartPoint(){
+    public int logStartPoint() {
         int start = -1;
 
         try {
@@ -146,7 +145,6 @@ public class LogStatus{
 
         return start;
     }
-
 
     // FOR TEST!!
     public int[] getMeta() {
