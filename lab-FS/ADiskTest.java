@@ -14,8 +14,9 @@ public class ADiskTest {
   // -------------------------------------------------------
   public static void main(String[] args) throws InterruptedException {
     sequentialTest();
-    concurrentTest(5, 5);
+    concurrentTest(50, 100, 0);
     System.out.println("All Tests Passed!");
+    System.exit(0);
   }
 
   // 顺序执行一些事务
@@ -53,7 +54,6 @@ public class ADiskTest {
       TransID transID2 = aDisk.beginTransaction();
 
       aDisk.readSector(transID2, 2100, readBuffer);
-      System.out.println(readBuffer[0] + " " + buffer1[1]);
       assert Arrays.equals(readBuffer, buffer1);
       aDisk.readSector(transID2, 2101, readBuffer);
       assert Arrays.equals(readBuffer, buffer2);
@@ -110,7 +110,7 @@ public class ADiskTest {
     System.out.println("Test 1 Passed!");
   }
 
-  private static void concurrentTest(int threadCount, int totSector) {
+  private static void concurrentTest(int threadCount, int totSector, double prob) {
     System.out.println("Test 2: test concurrent write & read & commit / abort");
 
     try {
@@ -129,7 +129,7 @@ public class ADiskTest {
       for (int i = 0; i < threadCount; i++) {
         int times = 3 * totSector / threadCount;
         Thread thread = new Thread(() -> {
-          threadTransactioin(aDisk, latch, sectors, globalUpdatedDict, times);
+          threadTransactioin(aDisk, latch, sectors, globalUpdatedDict, times, prob);
         });
         thread.start();
       }
@@ -138,6 +138,8 @@ public class ADiskTest {
       // 获取commit顺序
       Vector<Integer> order = aDisk.committedOrder();
       HashMap<Integer, byte[]> committedSectors = new HashMap<Integer, byte[]>();
+      System.out.println(order.size() + " transactions committed; " +
+          (threadCount - order.size()) + " transactions abort");
       assert order.size() == globalUpdatedDict.size();
       for (Integer id : order) {
         HashMap<Integer, byte[]> dict = globalUpdatedDict.get(id);
@@ -167,7 +169,7 @@ public class ADiskTest {
   }
 
   private static void threadTransactioin(ADisk aDisk, CountDownLatch latch, Vector<Integer> sectors,
-      HashMap<Integer, HashMap<Integer, byte[]>> globalUpdatedDict, int times) {
+      HashMap<Integer, HashMap<Integer, byte[]>> globalUpdatedDict, int times, double prob) {
     int sectorNum = 0;
     int n = sectors.size();
 
@@ -193,9 +195,15 @@ public class ADiskTest {
         assert Arrays.equals(buffer, localUpdatedDict.get(key));
       }
 
-      globalUpdatedDict.put(transID.toInt(), localUpdatedDict);
+      Random rand = new Random(); // 使用默认种子
+      if (rand.nextDouble() >= prob) {
+        globalUpdatedDict.put(transID.toInt(), localUpdatedDict);
 
-      aDisk.commitTransaction(transID);
+        aDisk.commitTransaction(transID);
+      } else {
+        aDisk.abortTransaction(transID);
+      }
+
       latch.countDown();
     } catch (Exception e) {
       e.printStackTrace();
