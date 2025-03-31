@@ -10,6 +10,10 @@
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.Vector;
 
 public class ADisk {
@@ -20,6 +24,13 @@ public class ADisk {
   public static final int REDO_LOG_SECTORS = 1024;
 
   // 一些磁盘分区的定义，包括super block、log region的范围定义
+  // 磁盘大小为8MB = 2^23，扇区大小 = 512B = 2^9 总共16K个扇区
+  // 其中1024=1K个日志块
+  // 由于元数据等都由ADisk自定义，超级块用logStatus替代
+  // 暂时设计布局为
+  // 1个超级扇区 + 1K个日志扇区 + 剩余的数据扇区
+  private static final int LOG_STATUS_SECTOR_NUMBER = 0;
+  private static final int LOG_REGION = 1;
 
   // -------------------------------------------------------
   // member variables
@@ -32,6 +43,7 @@ public class ADisk {
 
   private Vector<Integer> committedOrder;
   // internal class都做了并发控制，貌似不需要控制并发了
+  // 但是测试时希望能获取到事务提交的顺序
   private SimpleLock lock;
   // private Condition writeBackCond;
 
@@ -58,6 +70,13 @@ public class ADisk {
 
       lock = new SimpleLock();
       committedOrder = new Vector<>();
+
+      // 格式化磁盘或者日志恢复
+      if (format) {
+        formatDisk();
+      } else {
+        recovery();
+      }
       // 启动一个线程完成writeback工作
       Thread writeBackThread = new Thread(() -> {
         writeBack(writeBackList, disk, callbackTracker);
@@ -152,7 +171,7 @@ public class ADisk {
       System.arraycopy(transLog, 0, headerBuffer, 0, Disk.SECTOR_SIZE);
       tag = genTag(transaction.getTransID(), Disk.WRITE, logStart);
       tags.add(tag);
-      disk.startRequest(Disk.WRITE, tag, logStart, headerBuffer);
+      disk.startRequest(Disk.WRITE, tag, logIndex2secNum(logStart, 0), headerBuffer);
 
       // tag的构造方法直接采用transID + sec num，也能确保全局唯一和可读，header默认为0
       for (int i = 0; i < logSectors - 2; ++i) {
@@ -160,7 +179,7 @@ public class ADisk {
         transaction.getUpdateI(i, buffer);
         tag = genTag(transaction.getTransID(), Disk.WRITE, logStart + i + 1);
         tags.add(tag);
-        disk.startRequest(Disk.WRITE, tag, logStart + i + 1, buffer);
+        disk.startRequest(Disk.WRITE, tag, logIndex2secNum(logStart, i + 1), buffer);
       }
 
       // 添加barrier
@@ -171,7 +190,7 @@ public class ADisk {
       System.arraycopy(transLog, (logSectors - 1) * Disk.SECTOR_SIZE, commitBuffer, 0, Disk.SECTOR_SIZE);
       tag = genTag(transaction.getTransID(), Disk.WRITE, logStart + logSectors - 1);
       tags.add(tag);
-      disk.startRequest(Disk.WRITE, tag, logStart + logSectors - 1, commitBuffer);
+      disk.startRequest(Disk.WRITE, tag, logIndex2secNum(logStart, logSectors - 1), commitBuffer);
 
       // 这里持有锁等待，所有事务提交全变成顺序了
       callbackTracker.dontWaitForTags(tags);
@@ -367,6 +386,87 @@ public class ADisk {
   // 高16位为事务id，后8位为 R(0)/W(1)，后八位为扇区号
   private static int genTag(TransID transID, int op, int sectorNum) {
     return (transID.toInt() & 0xFFFF0000) | ((op & 0x1) << 8) | (sectorNum & 0xFF);
+  }
+
+  private void formatDisk() {
+
+  }
+
+  private void recovery() {
+    byte[] buffer = new byte[Disk.SECTOR_SIZE];
+    byte[] commitBuffer = new byte[Disk.SECTOR_SIZE];
+    Vector<Integer> tags = new Vector<>();
+    int tail = 0;
+    int logLength = 0;
+    int offset = 0;
+    int nSectors = 0;
+
+    try {
+      // 读取第一个扇区初始化logStatus
+      disk.startRequest(Disk.READ, 0, LOG_STATUS_SECTOR_NUMBER, buffer);
+      callbackTracker.waitForTag(0);
+      ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+      byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
+      tail = byteBuffer.getInt();
+      logLength = byteBuffer.getInt();
+      logStatus.recoverySectorsInUse(tail, logLength);
+
+      // 临时用一个“假”事务，主要用于构造tag
+      TransID transID = new TransID(0);
+      int tag = 0;
+      
+      TransactionHeader[] headerList = new TransactionHeader[1];
+      LinkedHashMap<Integer, byte[]> sectorWriteRecords = null;
+
+      while (true) {
+        offset = logStatus.logStartPoint();
+        // 读取下一个事务的首个扇区并判断是否合法
+        tag = genTag(transID, Disk.READ, logIndex2secNum(0, offset));
+        disk.startRequest(Disk.READ, tag, logIndex2secNum(0, offset), buffer);
+        callbackTracker.waitForTag(tag);
+
+        nSectors = Transaction.parseHeader(buffer, headerList);
+        if (nSectors == -1 || headerList[0].status != Transaction.COMMITTED) {
+          break;
+        }
+
+        sectorWriteRecords = new LinkedHashMap<>();
+        tags.clear();
+        for (Integer sectorNum : headerList[0].sectorNumList) {
+          ++offset;
+          tag = genTag(transID, Disk.READ, logIndex2secNum(0, offset));
+          tags.add(tag);
+          sectorWriteRecords.put(sectorNum, new byte[Disk.SECTOR_SIZE]);
+          disk.startRequest(Disk.READ, tag, logIndex2secNum(0, offset), sectorWriteRecords.get(sectorNum));
+        }
+        callbackTracker.waitForTags(tags);
+
+        // 读取commit sector并验证合法性
+        ++offset;
+        tag = genTag(transID, Disk.READ, logIndex2secNum(0, offset));
+        disk.startRequest(Disk.READ, tag, logIndex2secNum(0, offset), buffer);
+        callbackTracker.waitForTag(tag);
+
+        Transaction transaction = new Transaction(headerList[0], sectorWriteRecords);
+        transaction.writeCommit(commitBuffer);
+        if (!Arrays.equals(buffer, commitBuffer)) {
+          // 非法事务
+          break;
+        }
+        Common.debugPrintln("Trans id: ", transaction.getTransID().toInt());
+        writeBackList.addCommitted(transaction);
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+  }
+
+  // logStart是在磁盘日志区为事务分配的空间的逻辑起始位置
+  // index是指定的扇区的逻辑下标
+  // 日志是循环的
+  // 通过该方法计算出该扇区在磁盘的物理扇区号
+  private int logIndex2secNum(int logStart, int index) {
+    return LOG_REGION + (logStart + index) % ADisk.REDO_LOG_SECTORS;
   }
 
 }
