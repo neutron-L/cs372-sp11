@@ -13,8 +13,9 @@ public class ADiskTest {
   // main() -- ADisk test
   // -------------------------------------------------------
   public static void main(String[] args) throws InterruptedException {
-    sequentialTest();
-    concurrentTest(50, 100, 0);
+    // sequentialTest();
+    // concurrentTest(50, 100, 0);
+    recoveryTest();
     System.out.println("All Tests Passed!");
     System.exit(0);
   }
@@ -209,5 +210,96 @@ public class ADiskTest {
       e.printStackTrace();
     }
 
+  }
+
+  private static void recoveryTest() {
+    System.out.println("Test 3: test recovery");
+
+    byte b = 0;
+    byte[] readBuffer = new byte[Disk.SECTOR_SIZE];
+
+    try {
+      // 第一次操作，格式化磁盘
+      ADisk aDisk = new ADisk(true);
+
+      // 事务1读写两个扇区并提交
+      TransID transID1 = aDisk.beginTransaction();
+
+      byte[] buffer1 = new byte[Disk.SECTOR_SIZE];
+      b = 0x10;
+      Common.setBuffer(b, buffer1);
+      aDisk.writeSector(transID1, 2100, buffer1);
+      aDisk.readSector(transID1, 2100, readBuffer);
+      assert Arrays.equals(readBuffer, buffer1);
+
+      byte[] buffer2 = new byte[Disk.SECTOR_SIZE];
+      b = 0x11;
+      Common.setBuffer(b, buffer2);
+      aDisk.writeSector(transID1, 2101, buffer2);
+      aDisk.readSector(transID1, 2101, readBuffer);
+      assert Arrays.equals(readBuffer, buffer2);
+
+      aDisk.commitTransaction(transID1);
+
+      TransID transID2 = aDisk.beginTransaction();
+
+      aDisk.readSector(transID2, 2100, readBuffer);
+      assert Arrays.equals(readBuffer, buffer1);
+      aDisk.readSector(transID2, 2101, readBuffer);
+      assert Arrays.equals(readBuffer, buffer2);
+
+      byte[] buffer3 = new byte[Disk.SECTOR_SIZE];
+      b = 0x20;
+      Common.setBuffer(b, buffer3);
+      aDisk.writeSector(transID2, 2101, buffer3);
+      aDisk.readSector(transID2, 2101, readBuffer);
+      assert Arrays.equals(readBuffer, buffer3);
+
+      aDisk.readSector(transID2, 2100, readBuffer);
+      assert Arrays.equals(readBuffer, buffer1);
+
+      aDisk.writeSector(transID2, 2100, buffer3);
+      aDisk.readSector(transID2, 2100, readBuffer);
+      assert Arrays.equals(readBuffer, buffer3);
+
+      aDisk.commitTransaction(transID2);
+
+      TransID transID3 = aDisk.beginTransaction();
+
+      byte[] buffer4 = new byte[Disk.SECTOR_SIZE];
+
+      aDisk.readSector(transID3, 2100, readBuffer);
+      assert Arrays.equals(readBuffer, buffer3);
+
+      b = 0x30;
+      Common.setBuffer(b, buffer4);
+      aDisk.writeSector(transID3, 2100, buffer4);
+      aDisk.readSector(transID3, 2100, readBuffer);
+      assert Arrays.equals(readBuffer, buffer4);
+
+      byte[] buffer5 = new byte[Disk.SECTOR_SIZE];
+      b = 0x31;
+      Common.setBuffer(b, buffer5);
+      aDisk.writeSector(transID3, 2101, buffer5);
+      aDisk.readSector(transID3, 2101, readBuffer);
+      assert Arrays.equals(readBuffer, buffer5);
+
+      aDisk.abortTransaction(transID3);
+
+      TransID transID4 = aDisk.beginTransaction();
+
+      aDisk.readSector(transID4, 2100, readBuffer);
+      assert Arrays.equals(readBuffer, buffer3);
+      aDisk.readSector(transID4, 2101, readBuffer);
+      assert Arrays.equals(readBuffer, buffer3);
+
+      aDisk.commitTransaction(transID4);
+
+      aDisk.abort();
+      aDisk.recovery();
+      System.out.println("Test 3 Passed!");
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
 }
