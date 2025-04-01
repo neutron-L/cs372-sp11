@@ -6,6 +6,7 @@ import java.util.Vector;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Set;
 
 public class ADiskTest {
@@ -212,91 +213,72 @@ public class ADiskTest {
 
   }
 
+  // 指定log的最初起始处
+  // 测试一系列事务提交后在日志区域是否占据了写入时指定的位置和长度
+  // 需要确保abort对日志区域无影响，且跨越日志区域边界无影响
   private static void recoveryTest() {
     System.out.println("Test 3: test recovery");
 
     byte b = 0;
-    byte[] readBuffer = new byte[Disk.SECTOR_SIZE];
+    Random random = new Random();
 
     try {
       // 第一次操作，格式化磁盘
       ADisk aDisk = new ADisk(true);
+      LinkedList<TestCommittedInfo> expected = new LinkedList<>();
+      int head = 999;
+      long seq = 0;
+      int times = 100;
 
-      // 事务1读写两个扇区并提交
-      TransID transID1 = aDisk.beginTransaction();
+      while (times-- > 0) {
+        // 事务1读写两个扇区并提交
+        TransID transID = aDisk.beginTransaction();
 
-      byte[] buffer1 = new byte[Disk.SECTOR_SIZE];
-      b = 0x10;
-      Common.setBuffer(b, buffer1);
-      aDisk.writeSector(transID1, 2100, buffer1);
-      aDisk.readSector(transID1, 2100, readBuffer);
-      assert Arrays.equals(readBuffer, buffer1);
+        int n = random.nextInt(5);
+        int temp = n;
+        while (n-- > 0) {
+          byte[] buffer = new byte[Disk.SECTOR_SIZE];
+          b = 0x10;
+          Common.setBuffer(b, buffer);
+          aDisk.writeSector(transID, 2100 + n, buffer);
+        }
+        if (random.nextDouble() >= 0.3) {
+          aDisk.commitTransaction(transID);
+          expected.add(new TestCommittedInfo(transID.toInt(), seq, head, temp + 2));
+          ++seq;
+          head += temp + 2;
+          head %= Disk.ADISK_REDO_LOG_SECTORS;
+        } else {
+          aDisk.abortTransaction(transID);
+        }
+        
+      }
 
-      byte[] buffer2 = new byte[Disk.SECTOR_SIZE];
-      b = 0x11;
-      Common.setBuffer(b, buffer2);
-      aDisk.writeSector(transID1, 2101, buffer2);
-      aDisk.readSector(transID1, 2101, readBuffer);
-      assert Arrays.equals(readBuffer, buffer2);
-
-      aDisk.commitTransaction(transID1);
-
-      TransID transID2 = aDisk.beginTransaction();
-
-      aDisk.readSector(transID2, 2100, readBuffer);
-      assert Arrays.equals(readBuffer, buffer1);
-      aDisk.readSector(transID2, 2101, readBuffer);
-      assert Arrays.equals(readBuffer, buffer2);
-
-      byte[] buffer3 = new byte[Disk.SECTOR_SIZE];
-      b = 0x20;
-      Common.setBuffer(b, buffer3);
-      aDisk.writeSector(transID2, 2101, buffer3);
-      aDisk.readSector(transID2, 2101, readBuffer);
-      assert Arrays.equals(readBuffer, buffer3);
-
-      aDisk.readSector(transID2, 2100, readBuffer);
-      assert Arrays.equals(readBuffer, buffer1);
-
-      aDisk.writeSector(transID2, 2100, buffer3);
-      aDisk.readSector(transID2, 2100, readBuffer);
-      assert Arrays.equals(readBuffer, buffer3);
-
-      aDisk.commitTransaction(transID2);
-
-      TransID transID3 = aDisk.beginTransaction();
-
-      byte[] buffer4 = new byte[Disk.SECTOR_SIZE];
-
-      aDisk.readSector(transID3, 2100, readBuffer);
-      assert Arrays.equals(readBuffer, buffer3);
-
-      b = 0x30;
-      Common.setBuffer(b, buffer4);
-      aDisk.writeSector(transID3, 2100, buffer4);
-      aDisk.readSector(transID3, 2100, readBuffer);
-      assert Arrays.equals(readBuffer, buffer4);
-
-      byte[] buffer5 = new byte[Disk.SECTOR_SIZE];
-      b = 0x31;
-      Common.setBuffer(b, buffer5);
-      aDisk.writeSector(transID3, 2101, buffer5);
-      aDisk.readSector(transID3, 2101, readBuffer);
-      assert Arrays.equals(readBuffer, buffer5);
-
-      aDisk.abortTransaction(transID3);
-
-      TransID transID4 = aDisk.beginTransaction();
-
-      aDisk.readSector(transID4, 2100, readBuffer);
-      assert Arrays.equals(readBuffer, buffer3);
-      aDisk.readSector(transID4, 2101, readBuffer);
-      assert Arrays.equals(readBuffer, buffer3);
-
-      aDisk.commitTransaction(transID4);
 
       aDisk.abort();
-      aDisk.recovery();
+      LinkedList<TestCommittedInfo> result = aDisk.recovery();
+
+      assert result.size() == expected.size();
+      // Common.debugPrintln(result.size(), " ", expected.size());
+      // if (result.size() != expected.size()) {
+      //   TestCommittedInfo info = result.getLast();
+      //   Common.debugPrintln(info.commitSeq, " ", info.logSectors);
+      //   assert false;
+      // }
+      while (!result.isEmpty()) {
+        TestCommittedInfo info1 = result.remove();
+        TestCommittedInfo info2 = expected.remove();
+
+       
+        if (!info1.equals(info2)) {
+          Common.debugPrintln(info1.id, " ", info2.id);
+          Common.debugPrintln(info1.commitSeq, " ", info2.commitSeq);
+          Common.debugPrintln(info1.logStart, " ", info2.logStart);
+          Common.debugPrintln(info1.logSectors, " ", info2.logSectors);   
+          assert false;
+        }
+      }
+
       System.out.println("Test 3 Passed!");
     } catch (IOException e) {
       e.printStackTrace();
