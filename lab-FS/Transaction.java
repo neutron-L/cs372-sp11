@@ -11,8 +11,6 @@
  *
  */
 import java.io.IOException;
-import java.io.ByteArrayOutputStream;
-import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
@@ -42,6 +40,8 @@ public class Transaction {
     private int status;
     private LinkedList<Integer> sectorNumList;
     private LinkedHashMap<Integer, byte[]> sectorWriteRecords;
+
+    private long commitSeq;
 
     // 用于构造commit sector
     private long checkSum;
@@ -84,6 +84,7 @@ public class Transaction {
     // for recovery
     public Transaction(TransactionHeader header, LinkedHashMap<Integer, byte[]> sectorWriteRecords) {
         this.transID = header.transID;
+        this.commitSeq = header.commitSeq;
         this.logStart = header.logStart;
         this.logSectors = header.logSectors;
         this.status = header.status;
@@ -136,11 +137,12 @@ public class Transaction {
         return ret;
     }
 
-    public void commit()
+    public void commit(long commitSeq)
             throws IOException, IllegalArgumentException {
         try {
             lock.lock();
             status = COMMITTED;
+            this.commitSeq = commitSeq;
         } finally {
             lock.unlock();
         }
@@ -352,6 +354,7 @@ public class Transaction {
 
             // 读取 TransID 对象 logStart, logSectors, status
             int id = byteBuffer.getInt();
+            long commitSeq = byteBuffer.getLong();
             int logStart = byteBuffer.getInt();
             int logSectors = byteBuffer.getInt();
             int status = byteBuffer.getInt();
@@ -364,7 +367,7 @@ public class Transaction {
             }
             ret = logSectors;
             if (headerList != null && headerList.length > 0) {
-                headerList[0] = new TransactionHeader(new TransID(id), logStart, logSectors, status, secLinkedList);
+                headerList[0] = new TransactionHeader(new TransID(id), commitSeq, logStart, logSectors, status, secLinkedList);
             }
 
             // System.out.println("transID: " + id);
@@ -418,16 +421,20 @@ public class Transaction {
         Arrays.fill(buffer, (byte) 0);
 
         int ret = -1;
-        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+        
+        try {
             lock.lock();
+
+            // if (status != COMMITTED) {
+                // return ret;
+            // }
 
             ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
             byteBuffer.order(ByteOrder.BIG_ENDIAN); // 根据需要选择字节序
 
             // 序列化 transID
             byteBuffer.putInt(transID.toInt()); // 再写入 transID 的数据
-
+            byteBuffer.putLong(commitSeq);
             // 序列化 logStart, logSectors, status
             byteBuffer.putInt(logStart);
             byteBuffer.putInt(logSectors);
@@ -439,8 +446,6 @@ public class Transaction {
             }
 
             ret = 1;
-        } catch (IOException e) {
-            e.printStackTrace();
         } finally {
             lock.unlock();
         }
@@ -452,7 +457,7 @@ public class Transaction {
         Common.checkBuffer(buffer, 1);
 
         // fill 0
-        Arrays.fill(buffer, (byte) 0);
+        Common.setBuffer((byte) 0, buffer);
 
         int ret = -1;
         try {
@@ -544,6 +549,28 @@ public class Transaction {
         return transaction;
     }
 
+    /* For test */
+    // 事务是否相等
+    @Override
+    public boolean equals(Object obj) {
+        // 检查是否为同一个引用
+        if (this == obj) {
+            return true;
+        }
+        // 检查对象是否为 null 或者类型不匹配
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        Transaction other = (Transaction) obj;
+
+        if (!transID.equals(other.transID) || status != other.status || sectorNumList != other.sectorNumList 
+            || sectorWriteRecords != other.sectorWriteRecords) {
+            return false;
+        }
+
+        return true;
+    }
+
     private static long calculateCheckSum(LinkedList<Integer> sectorNumList,
             LinkedHashMap<Integer, byte[]> sectorWriteRecords) {
         CRC32 crc32 = new CRC32();
@@ -557,14 +584,16 @@ public class Transaction {
 
 class TransactionHeader {
     public final TransID transID;
+    public long commitSeq;
     public SimpleLock lock;
     public int logStart;
     public int logSectors;
     public int status;
     public LinkedList<Integer> sectorNumList;
 
-    TransactionHeader(TransID transID, int logStart, int logSectors, int status, LinkedList<Integer> sectorNumList) {
+    TransactionHeader(TransID transID, long commitSeq, int logStart, int logSectors, int status, LinkedList<Integer> sectorNumList) {
         this.transID = transID;
+        this.commitSeq = commitSeq;
         this.logStart = logStart;
         this.logSectors = logSectors;
         this.status = status;

@@ -66,7 +66,7 @@ public class TransactionTest {
         LinkedList<Integer> secNumList = new LinkedList<>();
         while (times-- > 0) {
             b = (byte) random.nextInt(Byte.MAX_VALUE + 1);
-            Common.setBuffer((byte) b, buffer);
+            Common.setBuffer(b, buffer);
             sector = random.nextInt(Disk.NUM_OF_SECTORS);
             secNumList.add(sector);
             transaction.addWrite(sector, Arrays.copyOf(buffer, buffer.length));
