@@ -339,6 +339,15 @@ public class Transaction {
         }
     }
 
+    public long getCommittedSeq() {
+        try {
+            lock.lock();
+            return commitSeq;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     //
     // Parse a sector from the log that *may*
     // be a transaction header. If so, return
@@ -363,6 +372,11 @@ public class Transaction {
             // 读取 LinkedList<Integer> 对象
             LinkedList<Integer> secLinkedList = new LinkedList<>();
             int totSector = byteBuffer.getInt();
+            // 这里很可能是一个非法头部
+            // 防止无限制地getInt
+            if (totSector > Common.MAX_WRITES_PER_TRANSACTION) {
+                return ret;
+            }
             for (int i = 0; i < totSector; ++i) {
                 secLinkedList.add(byteBuffer.getInt());
             }
