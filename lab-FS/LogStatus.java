@@ -13,8 +13,9 @@
  *
  */
 
-import java.util.concurrent.locks.Condition;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -23,17 +24,34 @@ import java.util.logging.SimpleFormatter;
 public class LogStatus {
     private int head;
     private int tail;
-    private int logLength;
-    private SimpleLock lock;
-    private Condition freeSpace;
+    private int usedSectors;
+    // private SimpleLock lock;
+    // private Condition freeSpace;
 
     private static final Logger LOGGER = Logger.getLogger(LogStatusTest.class.getName());
 
     public LogStatus() {
-        lock = new SimpleLock();
-        freeSpace = lock.newCondition();
+        // lock = new SimpleLock();
+        // freeSpace = lock.newCondition();
         head = tail = 0;
-        logLength = 0;
+        usedSectors = 0;
+
+        // 设置日志级别为 FINE，用于调试信息输出
+        LOGGER.setLevel(Level.WARNING);
+
+        // 添加控制台处理器
+        ConsoleHandler consoleHandler = new ConsoleHandler();
+        consoleHandler.setLevel(Level.FINE);
+        consoleHandler.setFormatter(new SimpleFormatter());
+        LOGGER.addHandler(consoleHandler);
+    }
+
+    public LogStatus(int tail, int usedSectors) {
+        // lock = new SimpleLock();
+        // freeSpace = lock.newCondition();
+        this.tail = tail;
+        this.usedSectors = usedSectors;
+        this.head = (this.tail + usedSectors) % Disk.ADISK_REDO_LOG_SECTORS;
 
         // 设置日志级别为 FINE，用于调试信息输出
         LOGGER.setLevel(Level.WARNING);
@@ -52,19 +70,12 @@ public class LogStatus {
     public int reserveLogSectors(int nSectors) {
         int start = -1;
 
-        try {
-            lock.lock();
-            while (Disk.ADISK_REDO_LOG_SECTORS - logLength < nSectors) {
-                freeSpace.awaitUninterruptibly();
-            }
-            start = head;
-            LOGGER.fine(Thread.currentThread().getName()
-                    + String.format(" reserve: tail = %d; head = %d; logLength = %d", tail, head, logLength));
-            head = (head + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
-            logLength += nSectors;
-        } finally {
-            lock.unlock();
-        }
+        start = head;
+        LOGGER.fine(Thread.currentThread().getName()
+                + String.format(" reserve: tail = %d; head = %d; logLength = %d", tail, head, usedSectors));
+        head = (head + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
+        usedSectors += nSectors;
+
         return start;
     }
 
@@ -76,18 +87,13 @@ public class LogStatus {
     public int writeBackDone(int startSector, int nSectors) {
         int start = -1;
 
-        try {
-            lock.lock();
-            LOGGER.fine(Thread.currentThread().getName()
-                    + String.format(" writeBack: tail = %d; head = %d; logLength = %d", tail, head, logLength));
-            start = tail;
-            assert tail == startSector;
-            tail = (tail + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
-            logLength -= nSectors;
-            freeSpace.signalAll();
-        } finally {
-            lock.unlock();
-        }
+        LOGGER.fine(Thread.currentThread().getName()
+                + String.format(" writeBack: tail = %d; head = %d; logLength = %d", tail, head, usedSectors));
+        start = tail;
+        assert tail == startSector;
+        tail = (tail + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
+        usedSectors -= nSectors;
+
         return start;
     }
 
@@ -98,14 +104,9 @@ public class LogStatus {
     // transactions with pending write-backs
     //
     public void recoverySectorsInUse(int startSector, int nSectors) {
-        try {
-            lock.lock();
-            tail = startSector;
-            head = (startSector + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
-            logLength = nSectors;
-        } finally {
-            lock.unlock();
-        }
+        tail = startSector;
+        head = (startSector + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
+        usedSectors = nSectors;
     }
 
     //
@@ -135,31 +136,56 @@ public class LogStatus {
     // the sectors about to be reserved/reused.
     //
     public int logStartPoint() {
-        int start = -1;
+        return tail;
+    }
 
-        try {
-            lock.lock();
-            start = tail;
-        } finally {
-            lock.unlock();
-        }
 
-        return start;
+    public int freeSpace() {
+        return Disk.ADISK_REDO_LOG_SECTORS - usedSectors;
     }
 
     // FOR TEST!!
     public int[] getMeta() {
         int[] ret = new int[3];
 
-        try {
-            lock.lock();
-            ret[0] = tail;
-            ret[1] = head;
-            ret[2] = logLength;
-        } finally {
-            lock.unlock();
-        }
+        ret[0] = tail;
+        ret[1] = head;
+        ret[2] = usedSectors;
 
         return ret;
+    }
+
+    public int getTail() { return this.tail; }
+    public int getHead() { return this.head; }
+    public int getUsedSectors() { return this.usedSectors; }
+
+    public void writeLogStatus(byte[] buffer) 
+    throws IllegalArgumentException
+    {
+        Common.checkBuffer(buffer, 1);
+
+        // fill 0
+        Common.setBuffer((byte) 0, buffer);
+        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+        byteBuffer.order(ByteOrder.BIG_ENDIAN); // 根据需要选择字节序
+
+        // 序列化 transID
+        byteBuffer.putInt(tail);
+        byteBuffer.putInt(usedSectors);
+    }
+
+    public static LogStatus parseLogStatus(byte[] buffer) 
+    throws IllegalArgumentException
+    {
+        Common.checkBuffer(buffer, 1);
+
+        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+        byteBuffer.order(ByteOrder.BIG_ENDIAN); // 根据需要选择字节序
+
+        // 序列化 transID
+        int tail = byteBuffer.getInt();
+        int usedSectors = byteBuffer.getInt();
+
+        return new LogStatus(tail, usedSectors);
     }
 }
