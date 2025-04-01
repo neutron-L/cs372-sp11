@@ -34,14 +34,15 @@ public class Transaction {
     // You can modify and add to the interfaces
     //
     private final TransID transID;
-    private SimpleLock lock;
+    private long commitSeq;
     private int logStart;
     private int logSectors;
     private int status;
     private LinkedList<Integer> sectorNumList;
     private LinkedHashMap<Integer, byte[]> sectorWriteRecords;
 
-    private long commitSeq;
+
+    private SimpleLock lock;
 
     // 用于构造commit sector
     private long checkSum;
@@ -437,6 +438,7 @@ public class Transaction {
             byteBuffer.putLong(commitSeq);
             // 序列化 logStart, logSectors, status
             byteBuffer.putInt(logStart);
+
             byteBuffer.putInt(logSectors);
             byteBuffer.putInt(status);
 
