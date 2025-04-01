@@ -53,10 +53,11 @@ public class ActiveTransactionListTest {
 
         ActiveTransactionList activeTransactionList = new ActiveTransactionList();
         CountDownLatch latch = new CountDownLatch(threadCount);
+        SimpleLock lock = new SimpleLock();
 
         for (int i = 0; i < threadCount; i++) {
             Thread thread = new Thread(() -> {
-                threadPutAndRemove(activeTransactionList, latch, times);
+                threadPutAndRemove(activeTransactionList, lock, latch, times);
               });
               thread.start();
         }
@@ -66,21 +67,24 @@ public class ActiveTransactionListTest {
         System.out.println("Test 2 Passed!");
     }
 
-    private static void threadPutAndRemove(ActiveTransactionList activeTransactionList, CountDownLatch latch,
-            int times) {
+    private static void threadPutAndRemove(ActiveTransactionList activeTransactionList, SimpleLock lock, 
+    CountDownLatch latch, int times) {
         try {
             LinkedList<TransID> idList = new LinkedList<>();
 
             for (int i = 0; i < times; ++i) {
                 Transaction transaction = new Transaction();
+                lock.lock();
                 activeTransactionList.put(transaction);
-
+                lock.unlock();
                 idList.add(transaction.getTransID());
             }
             Thread.sleep(ThreadLocalRandom.current().nextInt(1, 5) * 1000);
 
             for (TransID transID : idList) {
+                lock.lock();
                 assert activeTransactionList.remove(transID) != null;
+                lock.unlock();
             }
         } catch (Exception e) {
             Thread.currentThread().interrupt();
