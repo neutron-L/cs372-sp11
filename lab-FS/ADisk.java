@@ -84,7 +84,7 @@ public class ADisk {
       // 格式化磁盘或者日志恢复
       if (format) {
         formatDisk();
-        logStatus.recoverySectorsInUse(888, 0);
+        logStatus.recoverySectorsInUse(0, 0);
         byte[] buffer = new byte[Disk.SECTOR_SIZE];
         logStatus.writeLogStatus(buffer);
         disk.startRequest(Disk.WRITE, 0, LOG_STATUS_SECTOR_NUMBER, buffer);
@@ -227,6 +227,9 @@ public class ADisk {
       // transact移入写回队列
       committedOrder.add(transaction.getTransID().toInt());
       writeBackList.addCommitted(transaction);
+
+      writeBackCond.signal();
+
       Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), " log sectors: ", transaction.recallLogSectorNSectors());
 
       // 批次更新head
@@ -319,8 +322,9 @@ public class ADisk {
       // 向disk发起请求并等待
       int tag = genTag(tid, Disk.READ, sectorNum);
       disk.startRequest(Disk.READ, tag, sectorNum, buffer);
-
       callbackTracker.waitForTag(tag);
+      Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
+            "; read from disk");
     } finally {
       lock.unlock();
     }
@@ -375,7 +379,7 @@ public class ADisk {
 
   public void writeBack(WriteBackList writeBackList, Disk disk, CallbackTracker callbackTracker) {
     Transaction transaction = null;
-    int logSectors = 0;
+    int updatedSectors = 0;
     int sectorNum = 0;
     int tag = 0;
     Vector<Integer> tags = new Vector<>();
@@ -384,9 +388,13 @@ public class ADisk {
       try {
           lock.lock();
 
-          transaction = writeBackList.getNextWriteback();
+          while ((transaction = writeBackList.getNextWriteback()) == null) {
+            writeBackCond.awaitUninterruptibly();
+          }
+
           // 将该事务的更新块写入磁盘
-          for (int i = 0; i < logSectors - 2; ++i) {
+          updatedSectors = transaction.getNUpdatedSectors();
+          for (int i = 0; i < updatedSectors; ++i) {
             byte[] buffer = new byte[Disk.SECTOR_SIZE];
             sectorNum = transaction.getUpdateISecNum(i);
             transaction.getUpdateI(i, buffer);
@@ -405,9 +413,6 @@ public class ADisk {
           lock.unlock();
         }
       }
-
-      // // 更新磁盘上的logstatus，必须等待，这里的写入必须是顺序的
-
   }
 
   // 希望构造具有一定意义的tag
