@@ -8,7 +8,6 @@
  *
  */
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -46,6 +45,10 @@ public class ADisk {
 
   private Vector<Integer> committedOrder;
   private AtomicLong nextCommitSeq;
+
+
+  private Thread writeBackThread;
+  private boolean doWriteBack;
 
   // internal class都做了并发控制，貌似不需要控制并发了
   // 但是测试时希望能获取到事务提交的顺序
@@ -93,7 +96,8 @@ public class ADisk {
         recovery();
       }
       // 启动一个线程完成writeback工作
-      Thread writeBackThread = new Thread(() -> {
+      doWriteBack = true;
+       writeBackThread = new Thread(() -> {
         writeBack(writeBackList, disk, callbackTracker);
       });
       writeBackThread.start();
@@ -230,7 +234,7 @@ public class ADisk {
 
       writeBackCond.signal();
 
-      Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), " log sectors: ", transaction.recallLogSectorNSectors());
+      // Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), " log sectors: ", transaction.recallLogSectorNSectors());
 
       // 批次更新head
     } catch (Exception e) {
@@ -308,14 +312,14 @@ public class ADisk {
       }
       // 首先查事务是否更新过该sector
       if (transaction.checkRead(sectorNum, buffer)) {
-        Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
-            "; read from own updated sectors");
+        // Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
+        //     "; read from own updated sectors");
         return;
       }
       // 查写回队列
       if (writeBackList.checkRead(sectorNum, buffer)) {
-        Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
-            "; read from write back list");
+        // Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
+        //     "; read from write back list");
         return;
       }
 
@@ -323,8 +327,8 @@ public class ADisk {
       int tag = genTag(tid, Disk.READ, sectorNum);
       disk.startRequest(Disk.READ, tag, sectorNum, buffer);
       callbackTracker.waitForTag(tag);
-      Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
-            "; read from disk");
+      // Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum,
+      //       "; read from disk");
     } finally {
       lock.unlock();
     }
@@ -366,7 +370,7 @@ public class ADisk {
         throw new IllegalArgumentException("Bad trans id");
       }
 
-      Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum);
+      // Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), "; sector num: ", sectorNum);
       transaction.addWrite(sectorNum, buffer);
     } finally {
       lock.unlock();
@@ -383,13 +387,14 @@ public class ADisk {
     int sectorNum = 0;
     int tag = 0;
     Vector<Integer> tags = new Vector<>();
+    byte[] logStatusBuffer = new byte[Disk.SECTOR_SIZE];
 
-    while (true) {
+    while (doWriteBack) {
       try {
           lock.lock();
 
           while ((transaction = writeBackList.getNextWriteback()) == null) {
-            writeBackCond.awaitUninterruptibly();
+            writeBackCond.await();
           }
 
           // 将该事务的更新块写入磁盘
@@ -405,14 +410,21 @@ public class ADisk {
           callbackTracker.waitForTags(tags);
           writeBackList.removeNextWriteback();
 
-          // 判断是否需要更新tail
-          // 为避免频繁更新tail
+          // 为了简单起见，每次都写回logstatus判断是否需要更新
+          // 为避免频繁更新tail，可以采用例如批次更新的方法
+          logStatus.writeBackDone(transaction.recallLogSectorStart(), transaction.recallLogSectorNSectors());
+          logStatus.writeLogStatus(logStatusBuffer);
+          disk.startRequest(Disk.WRITE, 0, LOG_STATUS_SECTOR_NUMBER, logStatusBuffer);
+          callbackTracker.waitForTag(0); // 等待以保证更新顺序
+        } catch (InterruptedException e) {
+          doWriteBack = false;
         } catch (Exception e) {
           e.printStackTrace();
         } finally {
           lock.unlock();
         }
       }
+      Common.debugPrintln("write back thread exit");
   }
 
   // 希望构造具有一定意义的tag
@@ -471,6 +483,7 @@ public class ADisk {
       callbackTracker.waitForTag(0);
       logStatus = LogStatus.parseLogStatus(buffer);
       tail = logStatus.getTail();
+      Common.debugPrintln("recovery tail ", tail);
       
       // 临时用一个“假”事务，主要用于构造tag
       TransID transID = new TransID(0);
@@ -524,9 +537,9 @@ public class ADisk {
           Common.debugPrintln("Read invalid commit sector transaction, break");
           break;
         }
-        Common.debugPrintln("Trans id: ", transaction.getTransID().toInt());
-        Common.debugPrintln("log Start: ", transaction.recallLogSectorStart());
-        Common.debugPrintln("log Sectors: ", transaction.recallLogSectorNSectors());
+        // Common.debugPrintln("Trans id: ", transaction.getTransID().toInt());
+        // Common.debugPrintln("log Start: ", transaction.recallLogSectorStart());
+        // Common.debugPrintln("log Sectors: ", transaction.recallLogSectorNSectors());
         writeBackList.addCommitted(transaction);
         assert transaction.getNUpdatedSectors() + 2 == transaction.recallLogSectorNSectors();
         usedSectors += transaction.getNUpdatedSectors() + 2;
@@ -558,10 +571,23 @@ public class ADisk {
   /* For test */
   // ADisk abort, lose all state
   public void abort() {
-    activeTransactionList = new ActiveTransactionList();
-    writeBackList = new WriteBackList();
-    logStatus = new LogStatus();
-    committedOrder.clear();
+    // 先终止写回线程
+    try {
+      lock.lock();
+
+      writeBackThread.interrupt();
+      Common.debugPrintln("interrupt write");
+      Thread.sleep(1000l);
+      activeTransactionList = new ActiveTransactionList();
+      writeBackList = new WriteBackList();
+      logStatus = new LogStatus();
+      committedOrder.clear();
+    } catch (Exception e) {
+      e.printStackTrace();
+    } finally {
+      lock.unlock();
+    }
+    
   }
 
 }
