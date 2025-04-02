@@ -14,6 +14,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.Vector;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
@@ -83,6 +84,11 @@ public class ADisk {
       // 格式化磁盘或者日志恢复
       if (format) {
         formatDisk();
+        logStatus.recoverySectorsInUse(888, 0);
+        byte[] buffer = new byte[Disk.SECTOR_SIZE];
+        logStatus.writeLogStatus(buffer);
+        disk.startRequest(Disk.WRITE, 0, LOG_STATUS_SECTOR_NUMBER, buffer);
+        callbackTracker.waitForTag(0);
       } else {
         recovery();
       }
@@ -91,7 +97,7 @@ public class ADisk {
         writeBack(writeBackList, disk, callbackTracker);
       });
       writeBackThread.start();
-    } catch (FileNotFoundException e) {
+    } catch (Exception e) {
       e.printStackTrace();
     }
   }
@@ -367,32 +373,41 @@ public class ADisk {
     return committedOrder;
   }
 
-  public static void writeBack(WriteBackList writeBackList, Disk disk, CallbackTracker callbackTracker) {
+  public void writeBack(WriteBackList writeBackList, Disk disk, CallbackTracker callbackTracker) {
     Transaction transaction = null;
     int logSectors = 0;
     int sectorNum = 0;
     int tag = 0;
+    Vector<Integer> tags = new Vector<>();
 
     while (true) {
-      continue;
-      // transaction = writeBackList.getNextWriteback();
-      // // 将该事务的更新块写入磁盘，不必等待
-      // for (int i = 0; i < logSectors - 2; ++i) {
-      // try {
-      // byte[] buffer = new byte[Disk.SECTOR_SIZE];
-      // sectorNum = transaction.getUpdateISecNum(i);
-      // tag = genTag(transaction.getTransID(), Disk.WRITE, sectorNum);
-      // callbackTracker.dontWaitForTag(tag);
-      // disk.startRequest(Disk.WRITE, tag, sectorNum, buffer);
-      // } catch (Exception e) {
-      // e.printStackTrace();
-      // }
-      // }
+      try {
+          lock.lock();
+
+          transaction = writeBackList.getNextWriteback();
+          // 将该事务的更新块写入磁盘
+          for (int i = 0; i < logSectors - 2; ++i) {
+            byte[] buffer = new byte[Disk.SECTOR_SIZE];
+            sectorNum = transaction.getUpdateISecNum(i);
+            transaction.getUpdateI(i, buffer);
+            tag = genTag(transaction.getTransID(), Disk.WRITE, sectorNum);
+            tags.add(tag);
+            disk.startRequest(Disk.WRITE, tag, sectorNum, buffer);
+          }
+          callbackTracker.waitForTags(tags);
+          writeBackList.removeNextWriteback();
+
+          // 判断是否需要更新tail
+          // 为避免频繁更新tail
+        } catch (Exception e) {
+          e.printStackTrace();
+        } finally {
+          lock.unlock();
+        }
+      }
 
       // // 更新磁盘上的logstatus，必须等待，这里的写入必须是顺序的
 
-      // writeBackList.removeNextWriteback();
-    }
   }
 
   // 希望构造具有一定意义的tag
@@ -402,6 +417,7 @@ public class ADisk {
   }
 
   // 目前只需要清空super block（log status)
+  // 和日志区域
   // 需要更新空闲扇区和inode位图
   private void formatDisk() {
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
@@ -412,16 +428,27 @@ public class ADisk {
     byteBuffer.putInt(0); 
     byteBuffer.putInt(0);
 
+    Vector<Integer> tags = new Vector<>();
     try {
       disk.startRequest(Disk.WRITE, 0, LOG_STATUS_SECTOR_NUMBER, buffer);
-      callbackTracker.waitForTag(0);
+      tags.add(0);
+
+      for (int i = LOG_REGION; i < Disk.ADISK_REDO_LOG_SECTORS; ++i) {
+        disk.startRequest(Disk.WRITE, i, i, buffer);
+        tags.add(i);
+      }
+      callbackTracker.waitForTags(tags);
     } catch (IOException e) {
       e.printStackTrace();
     }
   }
 
-  public void recovery() {
+  public LinkedList<TestCommittedInfo> recovery() {
     Common.debugPrintln("Recovery...");
+
+    // for test
+    LinkedList<TestCommittedInfo> result = new LinkedList<>();
+
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
     byte[] commitBuffer = new byte[Disk.SECTOR_SIZE];
     Vector<Integer> tags = new Vector<>();
@@ -429,6 +456,7 @@ public class ADisk {
     int tail = 0;
     int usedSectors = 0;
     int logSectors = 0;
+    long prevCommitSeq = -1;
 
     try {
       // 读取第一个扇区获取logStatus记录的日志起点
@@ -447,6 +475,7 @@ public class ADisk {
       LinkedHashMap<Integer, byte[]> sectorWriteRecords = null;
 
       head = tail;
+      Common.debugPrintln(head);
       while (true) {
         // 读取下一个事务的首个扇区并判断是否合法
         tag = genTag(transID, Disk.READ, logIndex2secNum(0, head));
@@ -454,8 +483,15 @@ public class ADisk {
         callbackTracker.waitForTag(tag);
 
         logSectors = Transaction.parseHeader(buffer, headerList);
-        if (logSectors == -1 || headerList[0].status != Transaction.COMMITTED) {
-          Common.debugPrintln("Read header sector transaction, break", logSectors, " ", headerList[0].status);
+        if (logSectors == -1 || headerList[0].status != Transaction.COMMITTED || headerList[0].logStart != head) {
+          Common.debugPrintln("Read header sector transaction, break", logSectors, " ", headerList[0].status, " : ", headerList[0].logStart, " ", logIndex2secNum(0, head));
+          break;
+        }
+
+        if (prevCommitSeq == -1 || prevCommitSeq == headerList[0].commitSeq - 1) {
+          prevCommitSeq = headerList[0].commitSeq;
+        } else {
+          Common.debugPrintln("invalid commitSeq: ", headerList[0].commitSeq , "; prev commitseq: ",  prevCommitSeq, ", break");
           break;
         }
 
@@ -490,15 +526,20 @@ public class ADisk {
         assert transaction.getNUpdatedSectors() + 2 == transaction.recallLogSectorNSectors();
         usedSectors += transaction.getNUpdatedSectors() + 2;
 
-      ++head;
-
+        ++head;
+        head %=  Disk.ADISK_REDO_LOG_SECTORS;
+        result.add(new TestCommittedInfo(transaction.getTransID().toInt(), transaction.getCommittedSeq(), 
+          transaction.recallLogSectorStart(), transaction.recallLogSectorNSectors()));
       }
 
       assert usedSectors >= logStatus.getUsedSectors();
+      nextCommitSeq.set(prevCommitSeq + 1);
       logStatus.recoverySectorsInUse(tail, usedSectors);
     } catch (IOException e) {
       e.printStackTrace();
     }
+
+    return result;
   }
 
   // logStart是在磁盘日志区为事务分配的空间的逻辑起始位置
@@ -517,5 +558,35 @@ public class ADisk {
     logStatus = new LogStatus();
     committedOrder.clear();
   }
+
+}
+
+class TestCommittedInfo {
+  public int id;
+  public long commitSeq;
+  public int logStart;
+  public int logSectors;
+
+  public TestCommittedInfo(int id, long commitSeq, int logStart, int logSectors) {
+    this.id = id;
+    this.commitSeq = commitSeq;
+    this.logStart = logStart;
+    this.logSectors = logSectors;
+  }
+
+  @Override
+    public boolean equals(Object obj) {
+        // 检查是否为同一个引用
+        if (this == obj) {
+            return true;
+        }
+        // 检查对象是否为 null 或者类型不匹配
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        TestCommittedInfo other = (TestCommittedInfo) obj;
+
+        return id == other.id && commitSeq == other.commitSeq && logStart == other.logStart && logSectors == other.logSectors;
+    }
 
 }
