@@ -87,11 +87,15 @@ public class LogStatus {
     public int writeBackDone(int startSector, int nSectors) {
         int start = -1;
 
-        LOGGER.fine(Thread.currentThread().getName()
-                + String.format(" writeBack: tail = %d; head = %d; logLength = %d", tail, head, usedSectors));
+        Common.debugPrintln("--------------------------");
+        Common.debugPrintln("expect ", tail, " actual ", startSector, " nSectors: ", nSectors);
         start = tail;
-        assert tail == startSector;
+        if (tail != startSector) {
+            System.exit(1);
+        }
         tail = (tail + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
+        Common.debugPrintln("new tail ", tail);
+        Common.debugPrintln("--------------------------");
         usedSectors -= nSectors;
 
         return start;
