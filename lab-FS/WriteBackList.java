@@ -9,16 +9,29 @@
  * (C) 2011 Mike Dahlin
  *
  */
+
+ 
+import java.util.LinkedList;
+import java.util.concurrent.locks.Condition;
+
+
+// 必须是单个消费者
 public class WriteBackList{
 
     // 
     // You can modify and add to the interfaces
     //
+    private LinkedList<Transaction> transactions;
+
+    public WriteBackList() {
+        transactions = new LinkedList<>();
+    }
 
     // Once a transaction is committed in the log,
     // move it from the ActiveTransactionList to 
     // the WriteBackList
     public void addCommitted(Transaction t){
+        transactions.add(t);
     }
 
     //
@@ -40,7 +53,13 @@ public class WriteBackList{
     // order may not match transaction ID order.
     //    
     public Transaction getNextWriteback(){
-        return null;
+        Transaction transaction = null;
+
+        if (!transactions.isEmpty()) {
+            transaction = transactions.peek();
+        }
+
+        return transaction;
     }
 
     //
@@ -48,7 +67,13 @@ public class WriteBackList{
     // are now safely on disk.
     //
     public Transaction removeNextWriteback(){
-        return null;
+        Transaction transaction = null;
+
+        if (!transactions.isEmpty()) {
+            transaction = transactions.remove();
+        }
+
+        return transaction;
     }
 
     //
@@ -61,9 +86,17 @@ public class WriteBackList{
     throws IllegalArgumentException, 
            IndexOutOfBoundsException
     {
-        return false;
-    }
+        Common.checkSectorNum(secNum, 0, Disk.NUM_OF_SECTORS);
+        Common.checkBuffer(buffer, 1);
+        boolean ret = false;
 
-    
-    
+        for (int i = transactions.size() - 1; i >= 0; --i) {
+            Transaction transaction = transactions.get(i);
+            if ((ret = transaction.checkRead(secNum, buffer))) {
+                break;
+            }
+        }
+
+        return ret;
+    }
 }
