@@ -22,7 +22,7 @@ public class Common {
   public static final int WRITE = 1;
 
   // 自定义的常量和方法
-  private static final boolean DEBUG = false;
+  private static final boolean DEBUG = true;
 
   public static void checkSectorNum(int sectorNum, int start, int end)
       throws IndexOutOfBoundsException {
