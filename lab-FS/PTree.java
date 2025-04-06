@@ -206,6 +206,49 @@ public class PTree{
   public void readData(TransID xid, int tnum, int blockId, byte buffer[])
     throws IOException, IllegalArgumentException
   {
+    byte[] tnodeBuffer = new byte[TNODE_SIZE];
+
+    try {
+      lock.lock();
+      // 读取TNode 
+      readTNode(xid, tnum, tnodeBuffer);
+      // aDisk.readSector(xid, TNODE_SECTOR_START + tnum / (Disk.SECTOR_SIZE / TNODE_SIZE), tnodeBuffer);
+      TNode tnode = TNode.parseTNode(tnodeBuffer);
+      int blockNum = 0;
+
+      if (blockId < TNODE_DIRECT) {
+        blockNum = tnode.data_block_direct[blockId];
+      } else if (blockId < TNODE_DIRECT + POINTERS_PER_INTERNAL_NODE) {
+        blockId -= TNODE_DIRECT;
+        readBlock(xid, tnode.data_block_indirect, buffer);
+        blockNum = (buffer[2 * blockId + 1] << 8) | buffer[2 * blockId];
+      } else if (blockId < TNODE_DIRECT + POINTERS_PER_INTERNAL_NODE + POINTERS_PER_INTERNAL_NODE * POINTERS_PER_INTERNAL_NODE) {
+        int i, j;
+
+        blockId -= TNODE_DIRECT + POINTERS_PER_INTERNAL_NODE;
+        readBlock(xid, tnode.data_block_double_indirect, buffer);
+
+        i = blockId / POINTERS_PER_INTERNAL_NODE;
+        blockNum = (buffer[2 * i + 1] << 8) | buffer[2 * i];
+        readBlock(xid, blockNum, buffer);
+        j = blockId % POINTERS_PER_INTERNAL_NODE;
+        blockNum = (buffer[2 * j + 1] << 8) | buffer[2 * j];
+      } else {
+        // 虽然最大合法的blockId定义是Int最大值
+        // 但是实现上我们不支持
+        throw new IllegalArgumentException("Bad blockId");
+      }
+
+      // 判断blockNum是否合法
+      if (blockNum != 0) {
+        readBlock(xid, blockNum, buffer);
+      } else {
+        Common.setBuffer((byte)0, buffer);
+      }
+    } finally {
+      lock.unlock();
+    }
+    
   }
 
 
