@@ -13,7 +13,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
 import java.util.Vector;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
@@ -460,11 +459,11 @@ public class ADisk {
     }
   }
 
-  public LinkedList<TestCommittedInfo> recovery() {
+  public void recovery() {
     Common.debugPrintln("Recovery...");
 
     // for test
-    LinkedList<TestCommittedInfo> result = new LinkedList<>();
+    // LinkedList<TestCommittedInfo> result = new LinkedList<>();
 
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
     byte[] commitBuffer = new byte[Disk.SECTOR_SIZE];
@@ -546,8 +545,8 @@ public class ADisk {
 
         ++head;
         head %=  Disk.ADISK_REDO_LOG_SECTORS;
-        result.add(new TestCommittedInfo(transaction.getTransID().toInt(), transaction.getCommittedSeq(), 
-          transaction.recallLogSectorStart(), transaction.recallLogSectorNSectors()));
+        // result.add(new TestCommittedInfo(transaction.getTransID().toInt(), transaction.getCommittedSeq(), 
+          // transaction.recallLogSectorStart(), transaction.recallLogSectorNSectors()));
       }
 
       assert usedSectors >= logStatus.getUsedSectors();
@@ -557,7 +556,7 @@ public class ADisk {
       e.printStackTrace();
     }
 
-    return result;
+    // return result;
   }
 
   // logStart是在磁盘日志区为事务分配的空间的逻辑起始位置
@@ -570,54 +569,54 @@ public class ADisk {
 
   /* For test */
   // ADisk abort, lose all state
-  public void abort() {
-    // 先终止写回线程
-    try {
-      lock.lock();
+  // public void abort() {
+  //   // 先终止写回线程
+  //   try {
+  //     lock.lock();
 
-      writeBackThread.interrupt();
-      Common.debugPrintln("interrupt write");
-      Thread.sleep(1000l);
-      activeTransactionList = new ActiveTransactionList();
-      writeBackList = new WriteBackList();
-      logStatus = new LogStatus();
-      committedOrder.clear();
-    } catch (Exception e) {
-      e.printStackTrace();
-    } finally {
-      lock.unlock();
-    }
+  //     writeBackThread.interrupt();
+  //     Common.debugPrintln("interrupt write");
+  //     Thread.sleep(1000l);
+  //     activeTransactionList = new ActiveTransactionList();
+  //     writeBackList = new WriteBackList();
+  //     logStatus = new LogStatus();
+  //     committedOrder.clear();
+  //   } catch (Exception e) {
+  //     e.printStackTrace();
+  //   } finally {
+  //     lock.unlock();
+  //   }
     
-  }
+  // }
 
 }
 
-class TestCommittedInfo {
-  public int id;
-  public long commitSeq;
-  public int logStart;
-  public int logSectors;
+// class TestCommittedInfo {
+//   public int id;
+//   public long commitSeq;
+//   public int logStart;
+//   public int logSectors;
 
-  public TestCommittedInfo(int id, long commitSeq, int logStart, int logSectors) {
-    this.id = id;
-    this.commitSeq = commitSeq;
-    this.logStart = logStart;
-    this.logSectors = logSectors;
-  }
+//   public TestCommittedInfo(int id, long commitSeq, int logStart, int logSectors) {
+//     this.id = id;
+//     this.commitSeq = commitSeq;
+//     this.logStart = logStart;
+//     this.logSectors = logSectors;
+//   }
 
-  @Override
-    public boolean equals(Object obj) {
-        // 检查是否为同一个引用
-        if (this == obj) {
-            return true;
-        }
-        // 检查对象是否为 null 或者类型不匹配
-        if (obj == null || getClass() != obj.getClass()) {
-            return false;
-        }
-        TestCommittedInfo other = (TestCommittedInfo) obj;
+//   @Override
+//     public boolean equals(Object obj) {
+//         // 检查是否为同一个引用
+//         if (this == obj) {
+//             return true;
+//         }
+//         // 检查对象是否为 null 或者类型不匹配
+//         if (obj == null || getClass() != obj.getClass()) {
+//             return false;
+//         }
+//         TestCommittedInfo other = (TestCommittedInfo) obj;
 
-        return id == other.id && commitSeq == other.commitSeq && logStart == other.logStart && logSectors == other.logSectors;
-    }
+//         return id == other.id && commitSeq == other.commitSeq && logStart == other.logStart && logSectors == other.logSectors;
+//     }
 
-}
+// }
