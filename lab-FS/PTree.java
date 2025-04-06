@@ -115,15 +115,15 @@ public class PTree{
 
       // 读取TNode Map找到第一个未用过的tnum
       int b, bi;
-      for (b = 0; b < TNODE_SIZE; ++b) {
+      for (b = 0; b < TNODE_SIZE; b += 8 * Disk.SECTOR_SIZE) {
         aDisk.readSector(xid, FREE_TNODE_MAP_SECTOR_START + (b / (8 * Disk.SECTOR_SIZE)), buffer);
 
         for (bi = 0; bi < Disk.SECTOR_SIZE * 8 && b + bi < TNODE_SIZE; ++bi) {
           tnum = b + bi;
           // 更新TNode Map
-          if ((buffer[tnum / 8] & (1<<(tnum % 8))) == 0) {
-            buffer[tnum / 8] |= 1<<(tnum % 8);
-            aDisk.writeSector(xid, FREE_TNODE_MAP_SECTOR_START + (b / (8 * Disk.SECTOR_SIZE)), buffer);
+          if ((buffer[bi / 8] & (1<<(bi % 8))) == 0) {
+            buffer[bi / 8] |= 1<<(bi % 8);
+            aDisk.writeSector(xid, FREE_TNODE_MAP_SECTOR_START + (tnum / (8 * Disk.SECTOR_SIZE)), buffer);
             return tnum;
           }
         }
@@ -138,6 +138,7 @@ public class PTree{
   public void deleteTree(TransID xid, int tnum) 
     throws IOException, IllegalArgumentException
   {
+    
   }
 
   public void getMaxDataBlockId(TransID xid, int tnum)
