@@ -114,7 +114,9 @@ public class ADisk {
   //
   // -------------------------------------------------------
   public int getNSectors() {
-    return -1; // Fixme
+    // 对于ADisk，只关心自己负责的1 + 日志区域
+    // PTree等上层模块可以在剩余的部分设置自己的元数据区域
+    return Disk.NUM_OF_SECTORS - (1 + REDO_LOG_SECTORS); 
   }
 
   // -------------------------------------------------------
@@ -169,6 +171,7 @@ public class ADisk {
   public void commitTransaction(TransID tid)
       throws IOException, IllegalArgumentException {
     Transaction transaction = null;
+    Vector<Integer> tags = new Vector<>();
     int tag = 0;
     int logStart = 0, logSectors = 0;
 
@@ -196,8 +199,7 @@ public class ADisk {
       byte[] transLog = transaction.getSectorsForLog();
 
       // 将header + [updated sector]写入磁盘log并等待返回
-      Vector<Integer> tags = new Vector<>();
-
+      tags.clear();
       byte[] headerBuffer = new byte[Disk.SECTOR_SIZE];
       System.arraycopy(transLog, 0, headerBuffer, 0, Disk.SECTOR_SIZE);
       tag = genTag(transaction.getTransID(), Disk.WRITE, logStart);
@@ -212,7 +214,9 @@ public class ADisk {
         tags.add(tag);
         disk.startRequest(Disk.WRITE, tag, logIndex2secNum(logStart, i + 1), buffer);
       }
-
+      // commit扇区和前面的header扇区+更新扇区之间有barrier
+      // 只需要等待commit扇区写入
+      callbackTracker.dontWaitForTags(tags);
       // 添加barrier
       disk.addBarrier();
 
@@ -220,11 +224,10 @@ public class ADisk {
       byte[] commitBuffer = new byte[Disk.SECTOR_SIZE];
       System.arraycopy(transLog, (logSectors - 1) * Disk.SECTOR_SIZE, commitBuffer, 0, Disk.SECTOR_SIZE);
       tag = genTag(transaction.getTransID(), Disk.WRITE, logStart + logSectors - 1);
-      tags.add(tag);
       disk.startRequest(Disk.WRITE, tag, logIndex2secNum(logStart, logSectors - 1), commitBuffer);
 
       // 这里持有锁等待，所有事务提交全变成顺序了
-      callbackTracker.dontWaitForTags(tags);
+      callbackTracker.dontWaitForTag(tag);
 
 
       // transact移入写回队列
