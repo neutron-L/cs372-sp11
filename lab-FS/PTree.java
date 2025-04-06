@@ -14,6 +14,8 @@ import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.concurrent.locks.Condition;
 
+import javax.crypto.IllegalBlockSizeException;
+
 public class PTree{
   public static final int METADATA_SIZE = 64;
   public static final int MAX_TREES = 512;
@@ -215,12 +217,32 @@ public class PTree{
   public void readTreeMetadata(TransID xid, int tnum, byte buffer[])
     throws IOException, IllegalArgumentException
   {
+    if (buffer == null || buffer.length < METADATA_SIZE) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+    byte[] tnodeBuffer = new byte[TNODE_SIZE];
+
+    // 读取TNode
+    readTNode(xid, tnum, tnodeBuffer);
+    TNode tnode = TNode.parseTNode(tnodeBuffer);
+
+    System.arraycopy(tnode.tree_meta, 0, buffer, 0, METADATA_SIZE);
   }
 
 
   public void writeTreeMetadata(TransID xid, int tnum, byte buffer[])
     throws IOException, IllegalArgumentException
   {
+    if (buffer == null || buffer.length < METADATA_SIZE) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+    byte[] tnodeBuffer = new byte[TNODE_SIZE];
+
+    // 读取TNode
+    readTNode(xid, tnum, tnodeBuffer);
+    TNode tnode = TNode.parseTNode(tnodeBuffer);
+
+    System.arraycopy(buffer, 0, tnode.tree_meta, 0, METADATA_SIZE);
   }
 
   public int getParam(int param)
