@@ -11,6 +11,7 @@
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.concurrent.locks.Condition;
 
 public class PTree{
@@ -120,7 +121,7 @@ public class PTree{
 
         for (bi = 0; bi < Disk.SECTOR_SIZE * 8 && b + bi < TNODE_SIZE; ++bi) {
           tnum = b + bi;
-          // 更新TNode Map
+          // 将TNode Map中tnum对应的bit位职位1
           if ((buffer[bi / 8] & (1<<(bi % 8))) == 0) {
             buffer[bi / 8] |= 1<<(bi % 8);
             aDisk.writeSector(xid, FREE_TNODE_MAP_SECTOR_START + (tnum / (8 * Disk.SECTOR_SIZE)), buffer);
@@ -138,7 +139,27 @@ public class PTree{
   public void deleteTree(TransID xid, int tnum) 
     throws IOException, IllegalArgumentException
   {
-    
+    byte[] tnodeBuffer = new byte[TNODE_SIZE];
+
+    try {
+      lock.lock();
+
+      // 读取TNode
+      readTNode(tnum, tnodeBuffer);
+      // aDisk.readSector(xid, TNODE_SECTOR_START + tnum / (Disk.SECTOR_SIZE / TNODE_SIZE), tnodeBuffer);
+      TNode tnode = TNode.parseTNode(tnodeBuffer);
+
+      for (int i = 0; i < TNODE_DIRECT; ++i) {
+        freeBlock(xid, tnode.data_block_direct[i]);
+      }
+      freeBlock(xid, tnode.data_block_indirect);
+      freeBlock(xid, tnode.data_block_double_indirect);
+
+      // 释放TNode，更新Map中对应的位
+      freeTNode(xid,tnum);
+    } finally {
+      lock.unlock();
+    }
   }
 
   public void getMaxDataBlockId(TransID xid, int tnum)
@@ -182,10 +203,77 @@ public class PTree{
     }
   }
 
+
+  /* 4个方法都需要在持有锁的情况下使用 */
+  // 读取对应的TNode的字节数组
+  private void readTNode(TransID xid, int tnum, byte[] tnodeBuffer) 
+  throws IOException, IllegalArgumentException
+  {
+    if (tnodeBuffer == null || tnodeBuffer.length < TNODE_SIZE) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+
+    byte[] buffer = new byte[Disk.SECTOR_SIZE];
+    
+    int sectorNum = TNODE_SECTOR_START + (tnum / (Disk.SECTOR_SIZE / TNODE_SIZE));
+    aDisk.readSector(xid, sectorNum, buffer);
+    System.arraycopy(buffer, (tnum % (Disk.SECTOR_SIZE / TNODE_SIZE)) * TNODE_SIZE, tnodeBuffer, 0, TNODE_SIZE);
+  }
+
+  // 根据块号读取数据
+  // 不同于readData的blockId
+  private void readBlock(TransID xid, int blockNum, byte[] buffer) 
+  throws IOException, IllegalArgumentException
+  {
+    if (buffer == null || buffer.length != BLOCK_SIZE_BYTES) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+    byte[] buffer1 = new byte[Disk.SECTOR_SIZE];
+    byte[] buffer2 = new byte[Disk.SECTOR_SIZE];
+    aDisk.readSector(xid, blockNum * 2, buffer1);
+    aDisk.readSector(xid, blockNum * 2 + 1, buffer2);
+    System.arraycopy(buffer1, 0, buffer, 0, Disk.SECTOR_SIZE);
+    System.arraycopy(buffer2, 0, buffer, Disk.SECTOR_SIZE, Disk.SECTOR_SIZE);
+  }
+
+  private void freeTNode(TransID xid, int tnum) 
+  throws IOException, IllegalArgumentException
+  {
+    byte[] buffer = new byte[Disk.SECTOR_SIZE];
+
+    int sectorNum = FREE_TNODE_MAP_SECTOR_START + (tnum / (8 * Disk.SECTOR_SIZE));
+    aDisk.readSector(xid, sectorNum, buffer);
+    if ((buffer[(tnum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((tnum % (8 * Disk.SECTOR_SIZE)) % 8))) != 0) {
+      throw new IllegalArgumentException("Bad tnum");
+    }
+    buffer[(tnum % (8 * Disk.SECTOR_SIZE)) / 8] &= ~(1 << ((tnum % (8 * Disk.SECTOR_SIZE)) % 8));
+    assert (buffer[(tnum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((tnum % (8 * Disk.SECTOR_SIZE)) % 8))) == 0;
+    aDisk.writeSector(xid, sectorNum, buffer);
+  }
+
+  private void freeBlock(TransID xid, int blockNum) 
+  throws IOException, IllegalArgumentException
+  {
+    if (blockNum == 0) {
+      return;
+    }
+    byte[] buffer = new byte[Disk.SECTOR_SIZE];
+
+    int sectorNum = FREE_MAP_SECTOR_START + (blockNum / (8 * Disk.SECTOR_SIZE));
+    aDisk.readSector(xid, sectorNum, buffer);
+    if ((buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) != 0) {
+      throw new IllegalArgumentException("Bad tnum");
+    }
+    buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] &= ~(1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8));
+    assert (buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) == 0;
+    aDisk.writeSector(xid, sectorNum, buffer);
+  }
+
   
 }
 
 class TNode {
+  // 用0指代空指针
   public short[] data_block_direct;
   public short data_block_indirect;
   public short data_block_double_indirect;
