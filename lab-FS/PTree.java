@@ -47,6 +47,8 @@ public class PTree{
   private SimpleLock lock;
   private Condition newTransCond;
   private boolean noOutstandingTrans;
+  private int totAvailableSectors;
+  private int totAvailableTrees;
   
 
 
@@ -103,7 +105,32 @@ public class PTree{
   public int createTree(TransID xid) 
     throws IOException, IllegalArgumentException, ResourceException
   {
-    return -1;
+    byte[] buffer = new byte[Disk.SECTOR_SIZE];
+    int tnum = -1;
+
+    try {
+      lock.lock();
+
+      // 读取TNode Map找到第一个未用过的tnum
+      int b, bi;
+      for (b = 0; b < TNODE_SIZE; ++b) {
+        aDisk.readSector(xid, FREE_TNODE_MAP_SECTOR_START + (b / (8 * Disk.SECTOR_SIZE)), buffer);
+
+        for (bi = 0; bi < Disk.SECTOR_SIZE * 8 && b + bi < TNODE_SIZE; ++bi) {
+          tnum = b + bi;
+          // 更新TNode Map
+          if ((buffer[tnum / 8] & (1<<(tnum % 8))) == 0) {
+            buffer[tnum / 8] |= 1<<(tnum % 8);
+            aDisk.writeSector(xid, FREE_TNODE_MAP_SECTOR_START + (b / (8 * Disk.SECTOR_SIZE)), buffer);
+            return tnum;
+          }
+        }
+      }
+
+    throw new ResourceException("No enough Tnode");
+    } finally {
+      lock.unlock();
+    }
   }
 
   public void deleteTree(TransID xid, int tnum) 
@@ -142,11 +169,11 @@ public class PTree{
     throws IOException, IllegalArgumentException
   {
     if (param == ASK_FREE_SPACE) {
-      return -1;
+      return totAvailableSectors * Disk.SECTOR_SIZE;
     } else if (param == ASK_FREE_TREES) {
-
+      return totAvailableTrees;
     } else if (param == ASK_MAX_TREES) {
-
+      return MAX_TREES;
     } else {
       throw new IllegalArgumentException("Bad Param");
     }
