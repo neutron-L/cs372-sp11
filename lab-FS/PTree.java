@@ -9,6 +9,8 @@
  */
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.concurrent.locks.Condition;
 
 public class PTree{
@@ -180,4 +182,57 @@ public class PTree{
   }
 
   
+}
+
+class TNode {
+  public short[] data_block_direct;
+  public short data_block_indirect;
+  public short data_block_double_indirect;
+  public byte[] tree_meta;
+
+  public TNode() {
+    data_block_direct = new short[PTree.TNODE_DIRECT];
+    tree_meta = new byte[PTree.METADATA_SIZE];
+  }
+
+  public static TNode parseTNode(byte[] buffer) 
+  throws IllegalArgumentException
+  {
+    TNode.checkBuffer(buffer);
+    
+    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+    byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
+
+    TNode tnode = new TNode();
+    for (int i = 0; i < PTree.TNODE_DIRECT; ++i) {
+      tnode.data_block_direct[i] = byteBuffer.getShort();
+    }
+    tnode.data_block_indirect = byteBuffer.getShort();
+    tnode.data_block_double_indirect = byteBuffer.getShort();
+
+    return tnode;
+  }
+
+  public void writeTNode(byte[] buffer) 
+  throws IllegalArgumentException
+  {
+    TNode.checkBuffer(buffer);
+
+    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+    byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
+
+    for (int i = 0; i < PTree.TNODE_DIRECT; ++i) {
+      byteBuffer.putShort(data_block_direct[i]);
+    }
+    byteBuffer.putShort(data_block_indirect);
+    byteBuffer.putShort(data_block_double_indirect);
+  }
+
+  private static void checkBuffer(byte[] buffer) 
+  throws IllegalArgumentException
+  {
+    if (buffer == null || buffer.length != PTree.TNODE_SIZE) {
+      throw new IllegalArgumentException("Bad Buffer");
+    }
+  }
 }
