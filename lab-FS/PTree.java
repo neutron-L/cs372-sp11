@@ -32,9 +32,26 @@ public class PTree{
   public static final int BLOCK_SIZE_BYTES = 1024;
   public static final int POINTERS_PER_INTERNAL_NODE = 256;
 
+  // 自定义类元数据
+  public static final int FIRST_AVAILABLE_SECTOR = ADisk.getFirstAvailableSector();
+  public static final int FREE_MAP_SECTORS = 2;
+  public static final int FREE_MAP_SECTOR_START = FIRST_AVAILABLE_SECTOR;
+  public static final int TNODE_SIZE = 128;
+  public static final int FREE_TNODE_MAP_SECTORS = ((MAX_TREES / (Disk.SECTOR_SIZE / TNODE_SIZE)) + (8 * Disk.SECTOR_SIZE) - 1) / (8 * Disk.SECTOR_SIZE);
+  public static final int FREE_TNODE_MAP_SECTOR_START = FREE_MAP_SECTOR_START + FREE_MAP_SECTORS;
+  public static final int TNODE_SECTORS = MAX_TREES / (Disk.SECTOR_SIZE / TNODE_SIZE);
+  public static final int TNODE_SECTOR_START = FREE_TNODE_MAP_SECTOR_START + FREE_TNODE_MAP_SECTORS;
+
+  // 数据成员
+  private ADisk aDisk;
+  private SimpleLock lock;
+  
+
 
   public PTree(boolean doFormat)
   {
+    aDisk = new ADisk(doFormat);
+    lock = new SimpleLock();
   }
 
   public TransID beginTrans()
@@ -94,7 +111,15 @@ public class PTree{
   public int getParam(int param)
     throws IOException, IllegalArgumentException
   {
-    return -1;
+    if (param == ASK_FREE_SPACE) {
+      return -1;
+    } else if (param == ASK_FREE_TREES) {
+
+    } else if (param == ASK_MAX_TREES) {
+
+    } else {
+      throw new IllegalArgumentException("Bad Param");
+    }
   }
 
   
