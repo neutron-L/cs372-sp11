@@ -139,20 +139,47 @@ public class PTree{
   public void deleteTree(TransID xid, int tnum) 
     throws IOException, IllegalArgumentException
   {
+    byte[] buffer = new byte[BLOCK_SIZE_BYTES];
     byte[] tnodeBuffer = new byte[TNODE_SIZE];
 
     try {
       lock.lock();
 
       // 读取TNode
-      readTNode(tnum, tnodeBuffer);
+      readTNode(xid, tnum, tnodeBuffer);
       // aDisk.readSector(xid, TNODE_SECTOR_START + tnum / (Disk.SECTOR_SIZE / TNODE_SIZE), tnodeBuffer);
       TNode tnode = TNode.parseTNode(tnodeBuffer);
 
       for (int i = 0; i < TNODE_DIRECT; ++i) {
         freeBlock(xid, tnode.data_block_direct[i]);
       }
+      // 读取一级间接块
+      if (tnode.data_block_indirect != 0) {
+        readBlock(xid, tnode.data_block_indirect, buffer);
+        for (int i = 0; i < POINTERS_PER_INTERNAL_NODE; i += 2) {
+          int blockNum = (buffer[i + 1] << 8) | buffer[i];
+          freeBlock(xid, blockNum);
+        }
+      }
       freeBlock(xid, tnode.data_block_indirect);
+
+      // 读取二级间接块
+      if (tnode.data_block_double_indirect != 0) {
+        readBlock(xid, tnode.data_block_double_indirect, buffer);
+        for (int i = 0; i < POINTERS_PER_INTERNAL_NODE; i += 2) {
+          int block_indirect = (buffer[i + 1] << 8) | buffer[i];
+
+          if (block_indirect != 0) {
+            readBlock(xid, tnode.data_block_indirect, buffer);
+            for (int j = 0; j < POINTERS_PER_INTERNAL_NODE; j += 2) {
+              int blockNum = (buffer[j + 1] << 8) | buffer[j];
+              freeBlock(xid, blockNum);
+            }
+          }
+
+          freeBlock(xid, block_indirect);
+        }
+      }
       freeBlock(xid, tnode.data_block_double_indirect);
 
       // 释放TNode，更新Map中对应的位
@@ -165,6 +192,13 @@ public class PTree{
   public void getMaxDataBlockId(TransID xid, int tnum)
     throws IOException, IllegalArgumentException
   {
+    try {
+      lock.lock();
+
+
+    } finally {
+      lock.unlock();
+    }
   }
 
   public void readData(TransID xid, int tnum, int blockId, byte buffer[])
