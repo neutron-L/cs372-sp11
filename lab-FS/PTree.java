@@ -9,7 +9,7 @@
  */
 
 import java.io.IOException;
-import java.io.EOFException;
+import java.util.concurrent.locks.Condition;
 
 public class PTree{
   public static final int METADATA_SIZE = 64;
@@ -45,6 +45,8 @@ public class PTree{
   // 数据成员
   private ADisk aDisk;
   private SimpleLock lock;
+  private Condition newTransCond;
+  private boolean noOutstandingTrans;
   
 
 
@@ -52,21 +54,49 @@ public class PTree{
   {
     aDisk = new ADisk(doFormat);
     lock = new SimpleLock();
+    newTransCond = lock.newCondition();
+    noOutstandingTrans = true;
   }
 
   public TransID beginTrans()
   {
-    return null;
+    try {
+      lock.lock();
+      while (!noOutstandingTrans) {
+        newTransCond.awaitUninterruptibly();
+      }
+      TransID transID = aDisk.beginTransaction();
+      noOutstandingTrans = false;
+      return transID;
+    } finally {
+      lock.unlock();
+    }
   }
 
   public void commitTrans(TransID xid) 
     throws IOException, IllegalArgumentException
   {
+    try {
+      lock.lock();
+      aDisk.commitTransaction(xid);
+      noOutstandingTrans = true;
+      newTransCond.signal();
+    } finally {
+      lock.unlock();
+    }
   }
 
   public void abortTrans(TransID xid) 
     throws IOException, IllegalArgumentException
   {
+    try {
+      lock.lock();
+      aDisk.abortTransaction(xid);
+      noOutstandingTrans = true;
+      newTransCond.signal();
+    } finally {
+      lock.unlock();
+    }
   }
 
 
