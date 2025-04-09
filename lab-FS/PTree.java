@@ -11,6 +11,8 @@
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.locks.Condition;
 
 public class PTree{
@@ -621,15 +623,144 @@ public class PTree{
     }
 
     // 格式化空闲数据块
-    int usedSectors = DATA_BLOCK_START;
-    for (int i = 0; i < usedSectors / 8; ++i) {
-      buffer[i] = (byte)0xFF;
+    int usedBlocks = DATA_BLOCK_START / (BLOCK_SIZE_BYTES / Disk.SECTOR_SIZE);
+    for (int blockIdx = 0, i = 0; blockIdx < usedBlocks && i < FREE_MAP_SECTORS; blockIdx += Disk.SECTOR_SIZE * 8, ++i) {
+      Common.setBuffer((byte)0, buffer);
+      int x;
+      for (x = 0; x < Disk.SECTOR_SIZE && blockIdx + x + 8 <= usedBlocks; x +=  8) {
+        buffer[x] = (byte)0xFF;
+      }
+
+      if (x < Disk.SECTOR_SIZE) {
+        for (int j = 0; blockIdx + x + j < usedBlocks; ++j) {
+          buffer[x] |= 1 << j;
+        }
+      }
+      aDisk.writeSector(transID, FREE_MAP_SECTOR_START + i, buffer);
     }
-    for (int i = 0; i < usedSectors % 8; ++i) {
-      buffer[usedSectors / 8] |= 1 << i;
-    } 
 
     commitTrans(transID);
+  }
+
+
+  /* FOR TEST */
+  public int checkUsedBlocks() 
+  throws IOException
+  {
+    byte[] buffer = new byte[Disk.SECTOR_SIZE];
+    TransID transID = beginTrans();
+
+    // 解析空闲块位图，获取所有已经使用的块号
+    int blockNum = 0;
+    Set<Integer> usedBlockNums = new HashSet<>();
+    for (int sectorNum = FREE_MAP_SECTOR_START; sectorNum < FREE_MAP_SECTOR_START + FREE_MAP_SECTORS; ++sectorNum) {
+      aDisk.readSector(transID, sectorNum, buffer);
+
+      for (int i = 0; i < Disk.SECTOR_SIZE; ++i) {
+        for (int j = 0; j < 8; ++j) {
+          if ((buffer[i] & (1 << j)) != 0) {
+            usedBlockNums.add(blockNum + j);
+          }
+        }
+        blockNum += 8;
+      }
+    }
+
+     // 检查DATA_BLOCK_START之前的块都被占用
+    int usedBlocks = DATA_BLOCK_START / (BLOCK_SIZE_BYTES / Disk.SECTOR_SIZE);
+    for (int blockIdx = 0, i = 0; blockIdx < usedBlocks && i < FREE_MAP_SECTORS; blockIdx += Disk.SECTOR_SIZE * 8, ++i) {
+      aDisk.readSector(transID, blockIdx / (Disk.SECTOR_SIZE * 8), buffer);
+
+      int x;
+      for (x = 0; x < Disk.SECTOR_SIZE && blockIdx + x + 8 <= usedBlocks; x +=  8) {
+        assert buffer[x] == (byte)0xFF;
+        for (int y = 0; y < 8; ++y) {
+          assert usedBlockNums.contains(blockIdx + x + y);
+          usedBlockNums.remove(blockIdx + x + y);
+        }
+      }
+
+      if (x < Disk.SECTOR_SIZE) {
+        for (int j = 0; blockIdx + x + j < usedBlocks; ++j) {
+          assert (buffer[x] & (1 << j)) != 0;
+          assert usedBlockNums.contains(blockIdx + x + j);
+          usedBlockNums.remove(blockIdx + x + j);
+        }
+      }
+    }
+
+    int ret = usedBlockNums.size();
+    // 遍历所有TNode
+    int tnum = 0;
+    Set<Integer> usedTNodes = new HashSet<>();
+    for (int sectorNum = FREE_TNODE_MAP_SECTOR_START; sectorNum < FREE_TNODE_MAP_SECTOR_START + FREE_TNODE_MAP_SECTORS; ++sectorNum) {
+      aDisk.readSector(transID, sectorNum, buffer);
+
+      for (int i = 0; i < Disk.SECTOR_SIZE; ++i) {
+        for (int j = 0; j < 8; ++j) {
+          if ((buffer[i] & (1 << j)) != 0) {
+            usedTNodes.add(tnum + j);
+          }
+        }
+        tnum += 8;
+      }
+    }
+
+    byte[] tnodeBuffer = new byte[TNODE_SIZE];
+
+    // 读取TNode
+    for (Integer t : usedTNodes) {
+      readTNode(transID, t, tnodeBuffer);
+      TNode tnode = TNode.parseTNode(tnodeBuffer);
+
+      for (int i = 0; i < TNODE_DIRECT; ++i) {
+        if (tnode.data_block_direct[i] != 0) {
+          assert usedBlockNums.contains(tnode.data_block_direct[i]);
+          usedBlockNums.remove(tnode.data_block_direct[i]);
+        }
+      }
+
+      if (tnode.data_block_indirect != 0) {
+        assert usedBlockNums.contains(tnode.data_block_indirect);
+        usedBlockNums.remove(tnode.data_block_indirect);
+
+        readBlock(transID, tnode.data_block_indirect, buffer);
+        for (int i = 0; i < POINTERS_PER_INTERNAL_NODE; ++i) {
+          blockNum = getBlockNum(buffer, i);
+          assert usedBlockNums.contains(blockNum);
+          usedBlockNums.remove(blockNum);
+        }
+      }
+
+      if (tnode.data_block_double_indirect != 0) {
+        assert usedBlockNums.contains(tnode.data_block_double_indirect);
+        usedBlockNums.remove(tnode.data_block_double_indirect);
+
+        readBlock(transID, tnode.data_block_double_indirect, buffer);
+        for (int j = 0; j < POINTERS_PER_INTERNAL_NODE; ++j) {
+          blockNum = getBlockNum(buffer, j);
+          if (blockNum != 0) {
+            assert usedBlockNums.contains(blockNum);
+            usedBlockNums.remove(blockNum);
+
+            readBlock(transID, tnode.data_block_indirect, buffer);
+            for (int i = 0; i < POINTERS_PER_INTERNAL_NODE; ++i) {
+              blockNum = getBlockNum(buffer, i);
+              if (blockNum != 0) {
+                assert usedBlockNums.contains(blockNum);
+                usedBlockNums.remove(blockNum);
+              }
+            }
+          }
+          
+        }
+      }
+    }
+    
+    assert usedBlockNums.isEmpty();
+    commitTrans(transID);
+     
+    return ret;
   }
 }
 
