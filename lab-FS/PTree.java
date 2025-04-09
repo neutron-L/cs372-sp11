@@ -61,6 +61,15 @@ public class PTree{
     lock = new SimpleLock();
     newTransCond = lock.newCondition();
     noOutstandingTrans = true;
+
+    try {
+      if (doFormat) {
+        format();
+      } 
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+    
   }
 
   public TransID beginTrans()
@@ -592,7 +601,36 @@ public class PTree{
     System.arraycopy(tnodeBuffer, 0, buffer, (tnum % (Disk.SECTOR_SIZE / TNODE_SIZE)) * TNODE_SIZE, TNODE_SIZE);
     aDisk.writeSector(xid, sectorNum, buffer);
   }
-  
+
+  // 格式化磁盘中的空闲数据块位图 空闲tnode位图 tnode数组
+  private void format() 
+  throws IOException, IllegalArgumentException
+  {
+    byte[] buffer = new byte[Disk.SECTOR_SIZE];
+    Common.setBuffer((byte)0, buffer);
+    TransID transID = beginTrans();
+
+    // 格式化空闲tnode位图
+    for (int i = 0; i < FREE_TNODE_MAP_SECTORS; ++i) {
+      aDisk.writeSector(transID, FREE_TNODE_MAP_SECTOR_START + i, buffer); 
+    }
+    
+    // 格式化tnode列表
+    for (int i = 0; i < TNODE_SECTORS; ++i) {
+      aDisk.writeSector(transID, TNODE_SECTOR_START + i, buffer); 
+    }
+
+    // 格式化空闲数据块
+    int usedSectors = DATA_BLOCK_START;
+    for (int i = 0; i < usedSectors / 8; ++i) {
+      buffer[i] = (byte)0xFF;
+    }
+    for (int i = 0; i < usedSectors % 8; ++i) {
+      buffer[usedSectors / 8] |= 1 << i;
+    } 
+
+    commitTrans(transID);
+  }
 }
 
 class TNode {
