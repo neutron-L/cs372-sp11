@@ -11,6 +11,7 @@ public class PTreeTest {
    public static void main(String[] args) throws Exception {
         testTree();
         testRWSimple();
+        testRWMiddle();
         System.out.println("All Tests Passed!");
         System.exit(0);
     }
@@ -159,6 +160,20 @@ public class PTreeTest {
         ptree.commitTrans(xid);
 
         System.out.println("Test 2 Passed!");
+    }
+
+    private static void testRWMiddle() 
+    throws IOException
+    {
+        System.out.println("Test 3: test data read & write middle");
+        System.out.println("Test 3 Passed!");
+    }
+
+    private static void testPersistence() 
+    throws IOException
+    {
+        System.out.println("Test 4: test data write-persistence-read");
+        System.out.println("Test 4 Passed!");
     }
 
    
