@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.net.FileNameMap;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.io.EOFException;
 import java.io.File;
 
@@ -27,11 +28,13 @@ public class FlatFS{
   public static final int ASK_FILE_METADATA_SIZE = 3502;
 
   private PTree ptree;
+  private int fileMetaSize;
 
   public FlatFS(boolean doFormat)
     throws IOException
   {
     ptree = new PTree(doFormat);
+    fileMetaSize = ptree.getParam(ASK_FILE_METADATA_SIZE);
   }
 
   public TransID beginTrans()
@@ -54,6 +57,7 @@ public class FlatFS{
   public int createFile(TransID xid)
     throws IOException, IllegalArgumentException
   {
+    // 新创建的file的所有数据都被置零，不需要额外处理
     return ptree.createTree(xid);
   }
 
@@ -66,9 +70,37 @@ public class FlatFS{
   public int read(TransID xid, int inumber, int offset, int count, byte buffer[])
     throws IOException, IllegalArgumentException, EOFException
   {
-    // 利用meta存储file size
+    byte[] blockBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
 
-    return -1;
+    // 检查参数
+    if (offset < 0) {
+      throw new IllegalArgumentException("Bad offset");
+    }
+
+    if (buffer == null || buffer.length < count) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+    // 利用meta存储file size
+    byte[] inodeBuffer = new byte[fileMetaSize];
+    ptree.readTreeMetadata(xid, inumber, inodeBuffer);
+    FileInode inode = FileInode.parseTNode(inodeBuffer);
+
+    if (offset >= inode.fileSize) {
+      throw new EOFException("Bad offset");
+    }
+
+    int tot = Math.min(count, inode.fileSize - offset);
+    int n = 0;
+    int blockId = offset / PTree.BLOCK_SIZE_BYTES;
+    while (n < tot) {
+      ptree.readData(xid, inumber, blockId, blockBuffer);
+      offset %= PTree.BLOCK_SIZE_BYTES;
+      System.arraycopy(blockBuffer, offset, buffer, n, PTree.BLOCK_SIZE_BYTES - offset);
+      n += PTree.BLOCK_SIZE_BYTES - offset;
+      offset += n;
+      ++blockId;
+    }
+    return n;
   }
     
 
