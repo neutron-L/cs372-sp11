@@ -11,6 +11,7 @@
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.locks.Condition;
@@ -449,13 +450,17 @@ public class PTree{
     if (buffer == null || buffer.length < METADATA_SIZE) {
       throw new IllegalArgumentException("Bad buffer");
     }
+    if (tnum < 0 || tnum >= MAX_TREES) {
+      throw new IllegalArgumentException("Bad tnum");
+    }
     byte[] tnodeBuffer = new byte[TNODE_SIZE];
 
     // 读取TNode
     readTNode(xid, tnum, tnodeBuffer);
     TNode tnode = TNode.parseTNode(tnodeBuffer);
-
     System.arraycopy(buffer, 0, tnode.tree_meta, 0, METADATA_SIZE);
+    tnode.writeTNode(tnodeBuffer);
+    writeTNode(xid, tnum, tnodeBuffer);
   }
 
   public int getParam(int param)
@@ -480,6 +485,9 @@ public class PTree{
   {
     if (tnodeBuffer == null || tnodeBuffer.length < TNODE_SIZE) {
       throw new IllegalArgumentException("Bad buffer");
+    }
+    if (tnum < 0 || tnum >= MAX_TREES) {
+      throw new IllegalArgumentException("Bad tnum");
     }
 
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
@@ -532,6 +540,11 @@ public class PTree{
     buffer[(tnum % (8 * Disk.SECTOR_SIZE)) / 8] &= ~(1 << ((tnum % (8 * Disk.SECTOR_SIZE)) % 8));
     assert (buffer[(tnum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((tnum % (8 * Disk.SECTOR_SIZE)) % 8))) == 0;
     aDisk.writeSector(xid, sectorNum, buffer);
+
+    // 格式化TNode
+    byte[] tnodeBuffer = new byte[TNODE_SIZE];
+    Common.setBuffer((byte)0, tnodeBuffer);
+    writeTNode(xid, tnum, tnodeBuffer);
   }
 
   private void freeBlock(TransID xid, int blockNum) 
@@ -545,6 +558,7 @@ public class PTree{
     int sectorNum = FREE_MAP_SECTOR_START + (blockNum / (8 * Disk.SECTOR_SIZE));
     aDisk.readSector(xid, sectorNum, buffer);
     if ((buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) == 0) {
+      Common.debugPrintln("blocknum", blockNum);
       throw new IllegalArgumentException("Bad block num");
     }
     buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] &= ~(1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8));
@@ -620,6 +634,9 @@ public class PTree{
   {
     if (tnodeBuffer == null || tnodeBuffer.length < TNODE_SIZE) {
       throw new IllegalArgumentException("Bad buffer");
+    }
+    if (tnum < 0 || tnum >= MAX_TREES) {
+      throw new IllegalArgumentException("Bad tnum");
     }
 
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
@@ -814,6 +831,7 @@ class TNode {
     }
     tnode.data_block_indirect = byteBuffer.getInt();
     tnode.data_block_double_indirect = byteBuffer.getInt();
+    byteBuffer.get(tnode.tree_meta);
 
     return tnode;
   }
@@ -831,6 +849,7 @@ class TNode {
     }
     byteBuffer.putInt(data_block_indirect);
     byteBuffer.putInt(data_block_double_indirect);
+    byteBuffer.put(tree_meta);
   }
 
   private static void checkBuffer(byte[] buffer) 
