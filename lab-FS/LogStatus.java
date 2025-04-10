@@ -87,15 +87,15 @@ public class LogStatus {
     public int writeBackDone(int startSector, int nSectors) {
         int start = -1;
 
-        Common.debugPrintln("--------------------------");
-        Common.debugPrintln("expect ", tail, " actual ", startSector, " nSectors: ", nSectors);
+        // Common.debugPrintln("--------------------------");
+        // Common.debugPrintln("expect ", tail, " actual ", startSector, " nSectors: ", nSectors);
         start = tail;
         if (tail != startSector) {
             System.exit(1);
         }
         tail = (tail + nSectors) % Disk.ADISK_REDO_LOG_SECTORS;
-        Common.debugPrintln("new tail ", tail);
-        Common.debugPrintln("--------------------------");
+        // Common.debugPrintln("new tail ", tail);
+        // Common.debugPrintln("--------------------------");
         usedSectors -= nSectors;
 
         return start;

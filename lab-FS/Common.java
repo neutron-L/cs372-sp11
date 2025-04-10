@@ -49,7 +49,7 @@ public class Common {
 
   public static void setBuffer(byte value, byte b[]) {
     int ii;
-    for (ii = 0; ii < Disk.SECTOR_SIZE; ii++) {
+    for (ii = 0; ii < b.length; ii++) {
       b[ii] = value;
     }
     return;

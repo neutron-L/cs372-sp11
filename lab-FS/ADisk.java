@@ -123,7 +123,7 @@ public class ADisk {
   // 获取当前磁盘可用的第一个扇区的扇区号
   // 为了简单性，每一层（ADisk，PTree，……）的元数据都加在下一层提供的可用空间的最前面
   public static int getFirstAvailableSector() {
-    return (1 + REDO_LOG_SECTORS) + 1;
+    return (1 + REDO_LOG_SECTORS);
   }
 
   // -------------------------------------------------------
