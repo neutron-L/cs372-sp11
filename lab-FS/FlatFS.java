@@ -92,12 +92,14 @@ public class FlatFS{
     int tot = Math.min(count, inode.fileSize - offset);
     int n = 0;
     int blockId = offset / PTree.BLOCK_SIZE_BYTES;
+    int num = 0;
     while (n < tot) {
       ptree.readData(xid, inumber, blockId, blockBuffer);
       offset %= PTree.BLOCK_SIZE_BYTES;
-      System.arraycopy(blockBuffer, offset, buffer, n, PTree.BLOCK_SIZE_BYTES - offset);
-      n += PTree.BLOCK_SIZE_BYTES - offset;
-      offset += n;
+      num = Math.min(tot - n, PTree.BLOCK_SIZE_BYTES - offset);
+      System.arraycopy(blockBuffer, offset, buffer, n, num);
+      n += num;
+      offset += num;
       ++blockId;
     }
     return n;
@@ -108,7 +110,45 @@ public class FlatFS{
     throws IOException, IllegalArgumentException
   {
     // 利用meta读写file size
+    byte[] blockBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
 
+    // 检查参数
+    if (offset < 0) {
+      throw new IllegalArgumentException("Bad offset");
+    }
+
+    if (buffer == null || buffer.length < count) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+    // 利用meta存储file size
+    byte[] inodeBuffer = new byte[fileMetaSize];
+    ptree.readTreeMetadata(xid, inumber, inodeBuffer);
+    FileInode inode = FileInode.parseTNode(inodeBuffer);
+
+    int tot = Math.min(count, inode.fileSize - offset);
+    int n = 0;
+    int blockId = offset / PTree.BLOCK_SIZE_BYTES;
+    int old_offset = offset;
+    int num = 0;
+    while (n < tot) {
+      offset %= PTree.BLOCK_SIZE_BYTES;
+      if (offset != 0) {
+        ptree.readData(xid, inumber, blockId, blockBuffer);
+      }
+      num = Math.min(tot - n, PTree.BLOCK_SIZE_BYTES - offset);
+      System.arraycopy(buffer, n, blockBuffer, offset, num);
+      ptree.writeData(xid, inumber, blockId, blockBuffer);
+      n += num;
+      offset += num;
+      ++blockId;
+    }
+    offset = old_offset;
+
+    if (offset + count > inode.fileSize) {
+      inode.fileSize = offset + count;
+      inode.writeFileInode(inodeBuffer);
+      ptree.writeTreeMetadata(xid, inumber, inodeBuffer);
+    }
   }
 
   public void readFileMetadata(TransID xid, int inumber, byte buffer[])
