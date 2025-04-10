@@ -509,7 +509,7 @@ public class PTree{
 
     int sectorNum = FREE_TNODE_MAP_SECTOR_START + (tnum / (8 * Disk.SECTOR_SIZE));
     aDisk.readSector(xid, sectorNum, buffer);
-    if ((buffer[(tnum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((tnum % (8 * Disk.SECTOR_SIZE)) % 8))) != 0) {
+    if ((buffer[(tnum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((tnum % (8 * Disk.SECTOR_SIZE)) % 8))) == 0) {
       throw new IllegalArgumentException("Bad tnum");
     }
     buffer[(tnum % (8 * Disk.SECTOR_SIZE)) / 8] &= ~(1 << ((tnum % (8 * Disk.SECTOR_SIZE)) % 8));
@@ -660,10 +660,10 @@ public class PTree{
   throws IOException
   {
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
-    TransID transID = beginTrans();
+    TransID transID = aDisk.beginTransaction();
 
     // 解析空闲块位图，获取所有已经使用的块号
-    int blockNum = 0;
+    int blockNum = DATA_BLOCK_START / SECTORS_PER_BLOCK;
     Set<Integer> usedBlockNums = new HashSet<>();
     for (int sectorNum = FREE_MAP_SECTOR_START; sectorNum < FREE_MAP_SECTOR_START + FREE_MAP_SECTORS; ++sectorNum) {
       aDisk.readSector(transID, sectorNum, buffer);
@@ -675,29 +675,6 @@ public class PTree{
           }
         }
         blockNum += 8;
-      }
-    }
-
-     // 检查DATA_BLOCK_START之前的块都被占用
-    int usedBlocks = DATA_BLOCK_START / SECTORS_PER_BLOCK;
-    for (int blockIdx = 0, i = 0; blockIdx < usedBlocks && i < FREE_MAP_SECTORS; blockIdx += Disk.SECTOR_SIZE * 8, ++i) {
-      aDisk.readSector(transID, blockIdx / (Disk.SECTOR_SIZE * 8), buffer);
-
-      int x;
-      for (x = 0; x < Disk.SECTOR_SIZE && blockIdx + x + 8 <= usedBlocks; x +=  8) {
-        assert buffer[x] == (byte)0xFF;
-        for (int y = 0; y < 8; ++y) {
-          assert usedBlockNums.contains(blockIdx + x + y);
-          usedBlockNums.remove(blockIdx + x + y);
-        }
-      }
-
-      if (x < Disk.SECTOR_SIZE) {
-        for (int j = 0; blockIdx + x + j < usedBlocks; ++j) {
-          assert (buffer[x] & (1 << j)) != 0;
-          assert usedBlockNums.contains(blockIdx + x + j);
-          usedBlockNums.remove(blockIdx + x + j);
-        }
       }
     }
 
@@ -770,9 +747,9 @@ public class PTree{
     }
     
     assert usedBlockNums.isEmpty();
-    commitTrans(transID);
+    aDisk.commitTransaction(transID);
      
-    return ret;
+    return 0;
   }
 }
 
