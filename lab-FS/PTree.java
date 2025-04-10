@@ -37,6 +37,7 @@ public class PTree{
   public static final int POINTERS_PER_INTERNAL_NODE = 256;
 
   // 自定义类元数据
+  public static final int SECTORS_PER_BLOCK = BLOCK_SIZE_BYTES / Disk.SECTOR_SIZE;
   public static final int FIRST_AVAILABLE_SECTOR = ADisk.getFirstAvailableSector();
   public static final int FREE_MAP_SECTORS = 2;
   public static final int FREE_MAP_SECTOR_START = FIRST_AVAILABLE_SECTOR;
@@ -524,6 +525,7 @@ public class PTree{
     }
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
 
+    blockNum -= DATA_BLOCK_START;
     int sectorNum = FREE_MAP_SECTOR_START + (blockNum / (8 * Disk.SECTOR_SIZE));
     aDisk.readSector(xid, sectorNum, buffer);
     if ((buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) != 0) {
@@ -541,18 +543,19 @@ public class PTree{
     int blockNum = 0;
 
     // 读取Block Map找到第一个未用过的blockNum
-    int b, bi;
-    for (b = DATA_BLOCK_START / 2; b < Disk.NUM_OF_SECTORS / 2; b += Disk.SECTOR_SIZE * 8) {
-      aDisk.readSector(xid, FREE_MAP_SECTORS + (b / (8 * Disk.SECTOR_SIZE)), buffer);
+    int b, bi, mapi = 0;
+    for (b = DATA_BLOCK_START / SECTORS_PER_BLOCK; b < Disk.NUM_OF_SECTORS / SECTORS_PER_BLOCK; b += Disk.SECTOR_SIZE * 8) {
+      aDisk.readSector(xid, FREE_MAP_SECTORS + mapi, buffer);
 
-      for (bi = 0; bi < Disk.SECTOR_SIZE * 8 && b + bi < Disk.NUM_OF_SECTORS / 2; ++bi) {
+      for (bi = 0; bi < Disk.SECTOR_SIZE * 8 && b + bi < Disk.NUM_OF_SECTORS / SECTORS_PER_BLOCK; ++bi) {
         blockNum = b + bi;
         // 将TNode Map中tnum对应的bit位职位1
         if ((buffer[bi / 8] & (1<<(bi % 8))) == 0) {
           buffer[bi / 8] |= 1<<(bi % 8);
-          aDisk.writeSector(xid, FREE_MAP_SECTORS + (b / (8 * Disk.SECTOR_SIZE)), buffer);
+          aDisk.writeSector(xid, FREE_MAP_SECTORS + mapi, buffer);
           return blockNum;
         }
+        ++mapi;
       }
     }
 
@@ -605,41 +608,50 @@ public class PTree{
   }
 
   // 格式化磁盘中的空闲数据块位图 空闲tnode位图 tnode数组
-  private void format() 
-  throws IOException, IllegalArgumentException
+  private boolean format() 
   {
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
+    int hasWrittenSectors = 0;
     Common.setBuffer((byte)0, buffer);
-    TransID transID = beginTrans();
 
-    // 格式化空闲tnode位图
-    for (int i = 0; i < FREE_TNODE_MAP_SECTORS; ++i) {
-      aDisk.writeSector(transID, FREE_TNODE_MAP_SECTOR_START + i, buffer); 
-    }
-    
-    // 格式化tnode列表
-    for (int i = 0; i < TNODE_SECTORS; ++i) {
-      aDisk.writeSector(transID, TNODE_SECTOR_START + i, buffer); 
-    }
+    try {
+      TransID transID = beginTrans();
 
-    // 格式化空闲数据块
-    int usedBlocks = DATA_BLOCK_START / (BLOCK_SIZE_BYTES / Disk.SECTOR_SIZE);
-    for (int blockIdx = 0, i = 0; blockIdx < usedBlocks && i < FREE_MAP_SECTORS; blockIdx += Disk.SECTOR_SIZE * 8, ++i) {
-      Common.setBuffer((byte)0, buffer);
-      int x;
-      for (x = 0; x < Disk.SECTOR_SIZE && blockIdx + x + 8 <= usedBlocks; x +=  8) {
-        buffer[x] = (byte)0xFF;
-      }
-
-      if (x < Disk.SECTOR_SIZE) {
-        for (int j = 0; blockIdx + x + j < usedBlocks; ++j) {
-          buffer[x] |= 1 << j;
+      // 格式化空闲tnode位图
+      for (int i = 0; i < FREE_TNODE_MAP_SECTORS; ++i) {
+        aDisk.writeSector(transID, FREE_TNODE_MAP_SECTOR_START + i, buffer); 
+        ++hasWrittenSectors;
+        if (hasWrittenSectors == Common.MAX_WRITES_PER_TRANSACTION) {
+          commitTrans(transID);
+          transID = beginTrans();
         }
       }
-      aDisk.writeSector(transID, FREE_MAP_SECTOR_START + i, buffer);
+      
+      // 格式化tnode列表
+      for (int i = 0; i < TNODE_SECTORS; ++i) {
+        aDisk.writeSector(transID, TNODE_SECTOR_START + i, buffer); 
+        ++hasWrittenSectors;
+        if (hasWrittenSectors == Common.MAX_WRITES_PER_TRANSACTION) {
+          commitTrans(transID);
+          transID = beginTrans();
+        }
+      }
+  
+      // 格式化空闲数据块
+      for (int i = 0; i < FREE_MAP_SECTORS; ++i) {
+        aDisk.writeSector(transID, FREE_MAP_SECTOR_START + i, buffer); 
+        ++hasWrittenSectors;
+        if (hasWrittenSectors == Common.MAX_WRITES_PER_TRANSACTION) {
+          commitTrans(transID);
+          transID = beginTrans();
+        }
+      }
+  
+      commitTrans(transID);
+    } catch (IOException | IllegalArgumentException e) {
+      return false;
     }
-
-    commitTrans(transID);
+    return true;
   }
 
 
@@ -667,7 +679,7 @@ public class PTree{
     }
 
      // 检查DATA_BLOCK_START之前的块都被占用
-    int usedBlocks = DATA_BLOCK_START / (BLOCK_SIZE_BYTES / Disk.SECTOR_SIZE);
+    int usedBlocks = DATA_BLOCK_START / SECTORS_PER_BLOCK;
     for (int blockIdx = 0, i = 0; blockIdx < usedBlocks && i < FREE_MAP_SECTORS; blockIdx += Disk.SECTOR_SIZE * 8, ++i) {
       aDisk.readSector(transID, blockIdx / (Disk.SECTOR_SIZE * 8), buffer);
 
