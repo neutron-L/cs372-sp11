@@ -2,8 +2,6 @@
 import java.io.IOError;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.Random;
 
 public class PTreeTest {
@@ -41,6 +39,10 @@ public class PTreeTest {
     {
         byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
         byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
+
+        byte[] meta1 = new byte[PTree.METADATA_SIZE];
+        byte[] meta2 = new byte[PTree.METADATA_SIZE];
+        byte[] readMeta = new byte[PTree.METADATA_SIZE];
         int blockId = 0;
 
         Common.setBuffer((byte)0, readBuffer);
@@ -135,6 +137,24 @@ public class PTreeTest {
 
         ptree.deleteTree(xid, tnum1);
         assert 0 == ptree.checkUsedBlocks(xid);
+
+        tnum1 = ptree.createTree(xid);
+        int tnum2 = ptree.createTree(xid);
+
+        /* 测试meta数据的读写 */ 
+        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), meta1);
+        ptree.writeTreeMetadata(xid, tnum1, meta1);
+        ptree.readTreeMetadata(xid, tnum1, readMeta);
+        assert Arrays.equals(meta1, readMeta);
+        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), meta2);
+        ptree.writeTreeMetadata(xid, tnum2, meta2);
+        ptree.readTreeMetadata(xid, tnum2, readMeta);
+        assert Arrays.equals(meta2, readMeta);
+
+        ptree.deleteTree(xid, tnum1);
+        ptree.deleteTree(xid, tnum2);
+        assert 0 == ptree.checkUsedBlocks(xid);
+
 
         ptree.commitTrans(xid);
 
