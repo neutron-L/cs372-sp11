@@ -54,7 +54,7 @@ public class PTree{
   private SimpleLock lock;
   private Condition newTransCond;
   private boolean noOutstandingTrans;
-  private int totAvailableSectors;
+  private int totAvailableBlocks;
   private int totAvailableTrees;
   
 
@@ -65,6 +65,8 @@ public class PTree{
     lock = new SimpleLock();
     newTransCond = lock.newCondition();
     noOutstandingTrans = true;
+    totAvailableBlocks = (Disk.NUM_OF_SECTORS - DATA_BLOCK_START) / 2;
+    totAvailableTrees = MAX_TREES;
 
     try {
       if (doFormat) {
@@ -138,6 +140,8 @@ public class PTree{
           if ((buffer[bi / 8] & (1<<(bi % 8))) == 0) {
             buffer[bi / 8] |= 1<<(bi % 8);
             aDisk.writeSector(xid, FREE_TNODE_MAP_SECTOR_START + (tnum / (8 * Disk.SECTOR_SIZE)), buffer);
+            --totAvailableTrees;
+
             return tnum;
           }
         }
@@ -198,6 +202,7 @@ public class PTree{
 
       // 释放TNode，更新Map中对应的位
       freeTNode(xid,tnum);
+      ++totAvailableTrees;
     } finally {
       lock.unlock();
     }
@@ -467,7 +472,7 @@ public class PTree{
     throws IOException, IllegalArgumentException
   {
     if (param == ASK_FREE_SPACE) {
-      return totAvailableSectors * Disk.SECTOR_SIZE;
+      return totAvailableBlocks * BLOCK_SIZE_BYTES;
     } else if (param == ASK_FREE_TREES) {
       return totAvailableTrees;
     } else if (param == ASK_MAX_TREES) {
@@ -564,6 +569,7 @@ public class PTree{
     buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] &= ~(1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8));
     assert (buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) == 0;
     aDisk.writeSector(xid, sectorNum, buffer);
+    ++totAvailableBlocks;
   }
 
   private int allocBlock(TransID xid, boolean zero) 
@@ -590,6 +596,7 @@ public class PTree{
             Common.setBuffer((byte)0, zeroBuffer);
             writeBlock(xid, blockNum, zeroBuffer);
           }
+          --totAvailableBlocks;
           return blockNum;
         }
       }
