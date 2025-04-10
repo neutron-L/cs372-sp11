@@ -248,7 +248,6 @@ public class PTree{
         // 但是实现上我们不支持
         throw new IllegalArgumentException("Bad blockId");
       }
-
       // 判断blockNum是否合法
       if (blockNum != 0) {
         readBlock(xid, blockNum, buffer);
@@ -284,6 +283,7 @@ public class PTree{
             throw new ResourceException();
           }
           // write back tnode
+          tnode.writeTNode(tnodeBuffer);
           writeTNode(xid, tnum, tnodeBuffer);
         }
         writeBlock(xid, tnode.data_block_direct[blockId], buffer);
@@ -325,6 +325,7 @@ public class PTree{
         }
         if (freeI != 0) {
           // write back tnode
+          tnode.writeTNode(tnodeBuffer);
           writeTNode(xid, tnum, tnodeBuffer);
         }
 
@@ -397,6 +398,7 @@ public class PTree{
 
         if (freeI != 0) {
           // write back tnode
+          tnode.writeTNode(tnodeBuffer);
           writeTNode(xid, tnum, tnodeBuffer);
         }
         writeBlock(xid, k, buffer);
@@ -525,7 +527,7 @@ public class PTree{
     }
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
 
-    blockNum -= DATA_BLOCK_START;
+    blockNum -= DATA_BLOCK_START / SECTORS_PER_BLOCK;
     int sectorNum = FREE_MAP_SECTOR_START + (blockNum / (8 * Disk.SECTOR_SIZE));
     aDisk.readSector(xid, sectorNum, buffer);
     if ((buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) != 0) {
