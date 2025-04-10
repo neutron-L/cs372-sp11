@@ -151,7 +151,8 @@ public class PTree{
   public void deleteTree(TransID xid, int tnum) 
     throws IOException, IllegalArgumentException
   {
-    byte[] buffer = new byte[BLOCK_SIZE_BYTES];
+    byte[] buffer1 = new byte[BLOCK_SIZE_BYTES];
+    byte[] buffer2 = new byte[BLOCK_SIZE_BYTES];
     byte[] tnodeBuffer = new byte[TNODE_SIZE];
 
     try {
@@ -167,9 +168,9 @@ public class PTree{
       }
       // 读取一级间接块
       if (tnode.data_block_indirect != 0) {
-        readBlock(xid, tnode.data_block_indirect, buffer);
+        readBlock(xid, tnode.data_block_indirect, buffer1);
         for (int i = 0; i < POINTERS_PER_INTERNAL_NODE; ++i) {
-          int blockNum = getBlockNum(buffer, i);
+          int blockNum = getBlockNum(buffer1, i);
           freeBlock(xid, blockNum);
         }
       }
@@ -177,14 +178,14 @@ public class PTree{
 
       // 读取二级间接块
       if (tnode.data_block_double_indirect != 0) {
-        readBlock(xid, tnode.data_block_double_indirect, buffer);
+        readBlock(xid, tnode.data_block_double_indirect, buffer1);
         for (int i = 0; i < POINTERS_PER_INTERNAL_NODE; ++i) {
-          int block_indirect = getBlockNum(buffer, i);
+          int block_indirect = getBlockNum(buffer1, i);
 
           if (block_indirect != 0) {
-            readBlock(xid, tnode.data_block_indirect, buffer);
+            readBlock(xid, block_indirect, buffer2);
             for (int j = 0; j < POINTERS_PER_INTERNAL_NODE; ++j) {
-              int blockNum = getBlockNum(buffer, j);
+              int blockNum = getBlockNum(buffer2, j);
               freeBlock(xid, blockNum);
             }
           }
@@ -228,21 +229,31 @@ public class PTree{
 
       if (blockId < TNODE_DIRECT) {
         blockNum = tnode.data_block_direct[blockId];
+        Common.debugPrintln("read direct ", blockNum);
       } else if (blockId < TNODE_DIRECT + POINTERS_PER_INTERNAL_NODE) {
         blockId -= TNODE_DIRECT;
-        readBlock(xid, tnode.data_block_indirect, buffer);
-        blockNum = getBlockNum(buffer, blockId);
+        if (tnode.data_block_indirect != 0) {
+          Common.debugPrintln("read indirect ", tnode.data_block_indirect);
+          readBlock(xid, tnode.data_block_indirect, buffer);
+          blockNum = getBlockNum(buffer, blockId);
+          Common.debugPrintln("read data ", blockNum);
+        }
       } else if (blockId < TNODE_DIRECT + POINTERS_PER_INTERNAL_NODE + POINTERS_PER_INTERNAL_NODE * POINTERS_PER_INTERNAL_NODE) {
         int i, j;
 
         blockId -= TNODE_DIRECT + POINTERS_PER_INTERNAL_NODE;
-        readBlock(xid, tnode.data_block_double_indirect, buffer);
 
-        i = blockId / POINTERS_PER_INTERNAL_NODE;
-        blockNum = getBlockNum(buffer, i);
-        readBlock(xid, blockNum, buffer);
-        j = blockId % POINTERS_PER_INTERNAL_NODE;
-        blockNum = getBlockNum(buffer, j);
+        if (tnode.data_block_double_indirect != 0) {
+          readBlock(xid, tnode.data_block_double_indirect, buffer);
+          i = blockId / POINTERS_PER_INTERNAL_NODE;
+          blockNum = getBlockNum(buffer, i);
+
+          if (blockNum != 0) {
+            readBlock(xid, blockNum, buffer);
+            j = blockId % POINTERS_PER_INTERNAL_NODE;
+            blockNum = getBlockNum(buffer, j);
+          }
+        }
       } else {
         // 虽然最大合法的blockId定义是Int最大值
         // 但是实现上我们不支持
@@ -279,9 +290,10 @@ public class PTree{
 
       if (blockId < TNODE_DIRECT) {
         if (tnode.data_block_direct[blockId] == 0) {
-          if ((tnode.data_block_direct[blockId] = allocBlock(xid)) == 0) {
+          if ((tnode.data_block_direct[blockId] = allocBlock(xid, false)) == 0) {
             throw new ResourceException();
           }
+          Common.debugPrintln("alloc direct ", tnode.data_block_direct[blockId]);
           // write back tnode
           tnode.writeTNode(tnodeBuffer);
           writeTNode(xid, tnum, tnodeBuffer);
@@ -294,10 +306,12 @@ public class PTree{
         blockId -= TNODE_DIRECT;
         i = tnode.data_block_indirect;
         if (i == 0) {
-          tnode.data_block_indirect = allocBlock(xid);
+          tnode.data_block_indirect = allocBlock(xid, true);
           if (tnode.data_block_indirect == 0) {
             throw new ResourceException();
           }
+          Common.debugPrintln("alloc indirect ", tnode.data_block_indirect);
+
           Common.setBuffer((byte)0, internalBuffer);
           i = tnode.data_block_indirect;
           freeI = i;
@@ -306,7 +320,7 @@ public class PTree{
           j = getBlockNum(internalBuffer, blockId);
         }
         if (j == 0) {
-          if ((j = allocBlock(xid)) == 0) {
+          if ((j = allocBlock(xid, false)) == 0) {
             setBlockNum(internalBuffer, blockId, 0);
 
             if (freeI != 0) {
@@ -317,6 +331,7 @@ public class PTree{
             }
             throw new ResourceException();
           }
+          Common.debugPrintln("alloc data ", j);
           setBlockNum(internalBuffer, blockId, j);
           freeJ = j;
         }
@@ -335,7 +350,7 @@ public class PTree{
 
         i = tnode.data_block_double_indirect;
         if (i == 0) {
-          tnode.data_block_double_indirect = allocBlock(xid);
+          tnode.data_block_double_indirect = allocBlock(xid, true);
           if (tnode.data_block_double_indirect == 0) {
             throw new ResourceException();
           }
@@ -348,7 +363,7 @@ public class PTree{
         }
 
         if (j == 0) {
-          if ((j = allocBlock(xid)) == 0) {
+          if ((j = allocBlock(xid, true)) == 0) {
             setBlockNum(internalBuffer, blockId / POINTERS_PER_INTERNAL_NODE, 0);
 
             if (freeI != 0) {
@@ -368,7 +383,7 @@ public class PTree{
         }
 
         if (k ==  0) {
-          if ((k = allocBlock(xid)) == 0) {
+          if ((k = allocBlock(xid, false)) == 0) {
             setBlockNum(internalBuffer2, blockId % POINTERS_PER_INTERNAL_NODE, 0);
 
             if (freeJ != 0) {
@@ -526,42 +541,48 @@ public class PTree{
       return;
     }
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
-
     blockNum -= DATA_BLOCK_START / SECTORS_PER_BLOCK;
     int sectorNum = FREE_MAP_SECTOR_START + (blockNum / (8 * Disk.SECTOR_SIZE));
     aDisk.readSector(xid, sectorNum, buffer);
-    if ((buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) != 0) {
-      throw new IllegalArgumentException("Bad tnum");
+    if ((buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) == 0) {
+      throw new IllegalArgumentException("Bad block num");
     }
     buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] &= ~(1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8));
     assert (buffer[(blockNum % (8 * Disk.SECTOR_SIZE)) / 8] & (1 << ((blockNum % (8 * Disk.SECTOR_SIZE)) % 8))) == 0;
     aDisk.writeSector(xid, sectorNum, buffer);
   }
 
-  private int allocBlock(TransID xid) 
+  private int allocBlock(TransID xid, boolean zero) 
   throws IOException, IllegalArgumentException
   {
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
+    byte[] zeroBuffer = new byte[BLOCK_SIZE_BYTES];
     int blockNum = 0;
 
     // 读取Block Map找到第一个未用过的blockNum
     int b, bi, mapi = 0;
     for (b = DATA_BLOCK_START / SECTORS_PER_BLOCK; b < Disk.NUM_OF_SECTORS / SECTORS_PER_BLOCK; b += Disk.SECTOR_SIZE * 8) {
-      aDisk.readSector(xid, FREE_MAP_SECTORS + mapi, buffer);
+      aDisk.readSector(xid, FREE_MAP_SECTOR_START + mapi, buffer);
 
       for (bi = 0; bi < Disk.SECTOR_SIZE * 8 && b + bi < Disk.NUM_OF_SECTORS / SECTORS_PER_BLOCK; ++bi) {
         blockNum = b + bi;
         // 将TNode Map中tnum对应的bit位职位1
         if ((buffer[bi / 8] & (1<<(bi % 8))) == 0) {
           buffer[bi / 8] |= 1<<(bi % 8);
-          aDisk.writeSector(xid, FREE_MAP_SECTORS + mapi, buffer);
+          Common.debugPrintln("sec", FREE_MAP_SECTOR_START + mapi, "mapi", mapi, "byte", buffer[bi / 8]);
+          aDisk.writeSector(xid, FREE_MAP_SECTOR_START + mapi, buffer);
+
+          if (zero) {
+            Common.setBuffer((byte)0, zeroBuffer);
+            writeBlock(xid, blockNum, zeroBuffer);
+          }
           return blockNum;
         }
-        ++mapi;
       }
+      ++mapi;
     }
 
-    return blockNum;
+    return 0;
   }
 
 
@@ -658,18 +679,22 @@ public class PTree{
 
 
   /* FOR TEST */
-  public int checkUsedBlocks() 
+  public int checkUsedBlocks(TransID xid) 
   throws IOException
   {
     byte[] buffer = new byte[Disk.SECTOR_SIZE];
-    TransID transID = aDisk.beginTransaction();
+    byte[] blockBuffer = new byte[BLOCK_SIZE_BYTES];
+    byte[] doubleBlockBuffer = new byte[BLOCK_SIZE_BYTES];
 
     // 解析空闲块位图，获取所有已经使用的块号
     int blockNum = DATA_BLOCK_START / SECTORS_PER_BLOCK;
     Set<Integer> usedBlockNums = new HashSet<>();
+    boolean first=true;
     for (int sectorNum = FREE_MAP_SECTOR_START; sectorNum < FREE_MAP_SECTOR_START + FREE_MAP_SECTORS; ++sectorNum) {
-      aDisk.readSector(transID, sectorNum, buffer);
-
+      aDisk.readSector(xid, sectorNum, buffer);
+      if (first == true)
+      Common.debugPrintln("sec", sectorNum, "byte", buffer[0]);
+first=false;
       for (int i = 0; i < Disk.SECTOR_SIZE; ++i) {
         for (int j = 0; j < 8; ++j) {
           if ((buffer[i] & (1 << j)) != 0) {
@@ -681,11 +706,12 @@ public class PTree{
     }
 
     int ret = usedBlockNums.size();
+    Common.debugPrintln("ret ", ret);
     // 遍历所有TNode
     int tnum = 0;
     Set<Integer> usedTNodes = new HashSet<>();
     for (int sectorNum = FREE_TNODE_MAP_SECTOR_START; sectorNum < FREE_TNODE_MAP_SECTOR_START + FREE_TNODE_MAP_SECTORS; ++sectorNum) {
-      aDisk.readSector(transID, sectorNum, buffer);
+      aDisk.readSector(xid, sectorNum, buffer);
 
       for (int i = 0; i < Disk.SECTOR_SIZE; ++i) {
         for (int j = 0; j < 8; ++j) {
@@ -701,7 +727,7 @@ public class PTree{
 
     // 读取TNode
     for (Integer t : usedTNodes) {
-      readTNode(transID, t, tnodeBuffer);
+      readTNode(xid, t, tnodeBuffer);
       TNode tnode = TNode.parseTNode(tnodeBuffer);
 
       for (int i = 0; i < TNODE_DIRECT; ++i) {
@@ -715,11 +741,13 @@ public class PTree{
         assert usedBlockNums.contains(tnode.data_block_indirect);
         usedBlockNums.remove(tnode.data_block_indirect);
 
-        readBlock(transID, tnode.data_block_indirect, buffer);
+        readBlock(xid, tnode.data_block_indirect, blockBuffer);
         for (int i = 0; i < POINTERS_PER_INTERNAL_NODE; ++i) {
-          blockNum = getBlockNum(buffer, i);
-          assert usedBlockNums.contains(blockNum);
-          usedBlockNums.remove(blockNum);
+          blockNum = getBlockNum(blockBuffer, i);
+          if (blockNum != 0) {
+            assert usedBlockNums.contains(blockNum);
+            usedBlockNums.remove(blockNum);
+          }
         }
       }
 
@@ -727,17 +755,19 @@ public class PTree{
         assert usedBlockNums.contains(tnode.data_block_double_indirect);
         usedBlockNums.remove(tnode.data_block_double_indirect);
 
-        readBlock(transID, tnode.data_block_double_indirect, buffer);
+        readBlock(xid, tnode.data_block_double_indirect, blockBuffer);
         for (int j = 0; j < POINTERS_PER_INTERNAL_NODE; ++j) {
-          blockNum = getBlockNum(buffer, j);
+          blockNum = getBlockNum(blockBuffer, j);
           if (blockNum != 0) {
+            Common.debugPrintln("1 blocknum", blockNum);
             assert usedBlockNums.contains(blockNum);
             usedBlockNums.remove(blockNum);
 
-            readBlock(transID, tnode.data_block_indirect, buffer);
+            readBlock(xid, blockNum, doubleBlockBuffer);
             for (int i = 0; i < POINTERS_PER_INTERNAL_NODE; ++i) {
-              blockNum = getBlockNum(buffer, i);
+              blockNum = getBlockNum(doubleBlockBuffer, i);
               if (blockNum != 0) {
+                Common.debugPrintln("2 block num", blockNum);
                 assert usedBlockNums.contains(blockNum);
                 usedBlockNums.remove(blockNum);
               }
@@ -749,9 +779,12 @@ public class PTree{
     }
     
     assert usedBlockNums.isEmpty();
-    aDisk.commitTransaction(transID);
-     
-    return 0;
+
+    return ret;
+  }
+
+  private boolean isValidBlockNum(int blockNum) {
+    return blockNum >= DATA_BLOCK_START / SECTORS_PER_BLOCK && blockNum < Disk.NUM_OF_SECTORS / SECTORS_PER_BLOCK;
   }
 }
 
