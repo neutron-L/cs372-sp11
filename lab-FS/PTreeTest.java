@@ -12,6 +12,7 @@ public class PTreeTest {
         testTree();
         testRWSimple();
         testRWMiddle();
+        testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
     }
@@ -183,7 +184,75 @@ public class PTreeTest {
     private static void testRWMiddle() 
     throws IOException
     {
+        byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
+        byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
+
+        int blockId = 0;
+        int totFreeSpace = 0;
+        int usedBlocks = 0;
+
+        Common.setBuffer((byte)0, readBuffer);
+        Common.setBuffer((byte)0, writeBuffer);
+
         System.out.println("Test 3: test data read & write middle");
+
+        PTree ptree = new PTree(true);
+
+        TransID xid = ptree.beginTrans();
+        totFreeSpace = ptree.getParam(PTree.ASK_FREE_SPACE);
+
+        // 创建一个tree并不断顺序写入块
+        int tnum = ptree.createTree(xid);
+
+        try {
+            for (blockId = 0; blockId < PTree.TNODE_DIRECT; ++blockId) {
+                Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+                ptree.writeData(xid, tnum, blockId, writeBuffer);
+                ++usedBlocks;
+            }
+            assert ptree.checkUsedBlocks(xid) == usedBlocks && ptree.getParam(PTree.ASK_FREE_SPACE) + usedBlocks * PTree.BLOCK_SIZE_BYTES == totFreeSpace;
+
+            // 预期会创建一个间接块
+            ++usedBlocks;
+            for (; blockId < PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE; ++blockId) {
+                Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+                ptree.writeData(xid, tnum, blockId, writeBuffer);
+                ++usedBlocks;
+                assert ptree.checkUsedBlocks(xid) == usedBlocks && ptree.getParam(PTree.ASK_FREE_SPACE) + usedBlocks * PTree.BLOCK_SIZE_BYTES == totFreeSpace;
+            }
+            assert ptree.checkUsedBlocks(xid) == usedBlocks && ptree.getParam(PTree.ASK_FREE_SPACE) + usedBlocks * PTree.BLOCK_SIZE_BYTES == totFreeSpace;
+
+            // 开始写入double间接块
+            for (; blockId < PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE; ++blockId) {
+                Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+                ptree.writeData(xid, tnum, blockId, writeBuffer);
+                ++usedBlocks;
+
+                // 这里创建一个一级间接块
+                if ((blockId - PTree.TNODE_DIRECT - PTree.POINTERS_PER_INTERNAL_NODE) % PTree.POINTERS_PER_INTERNAL_NODE == 0) {
+                    ++usedBlocks;
+                }
+                // 这里创建一个二级间接块
+                if ((blockId - PTree.TNODE_DIRECT - PTree.POINTERS_PER_INTERNAL_NODE) % (PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE) == 0) {
+                    ++usedBlocks;
+                }
+                Common.debugPrintln("blockid", blockId, "expect",  usedBlocks, "actual", ptree.checkUsedBlocks(xid));
+                Common.debugPrintln("expect",  ptree.getParam(PTree.ASK_FREE_SPACE) + usedBlocks * PTree.BLOCK_SIZE_BYTES, "actual", totFreeSpace);
+                assert ptree.checkUsedBlocks(xid) == usedBlocks && ptree.getParam(PTree.ASK_FREE_SPACE) + usedBlocks * PTree.BLOCK_SIZE_BYTES == totFreeSpace;
+            }
+        } catch (ResourceException e) {
+            Common.debugPrintln("here");
+            assert ptree.checkUsedBlocks(xid) == totFreeSpace / PTree.BLOCK_SIZE_BYTES && ptree.getParam(PTree.ASK_FREE_SPACE) == 0;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        ptree.deleteTree(xid, tnum);
+        assert ptree.checkUsedBlocks(xid) == 0 && ptree.getParam(PTree.ASK_FREE_SPACE) == totFreeSpace;
+
+        // 写入了太多块，只能abort
+        ptree.abortTrans(xid);
+
         System.out.println("Test 3 Passed!");
     }
 
