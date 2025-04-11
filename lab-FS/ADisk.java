@@ -84,6 +84,7 @@ public class ADisk {
       committedOrder = new Vector<>();
       nextCommitSeq = new AtomicLong(0);
 
+
       // 格式化磁盘或者日志恢复
       if (format) {
         formatDisk();
@@ -95,12 +96,23 @@ public class ADisk {
       } else {
         recovery();
       }
+
       // 启动一个线程完成writeback工作
       doWriteBack = true;
        writeBackThread = new Thread(() -> {
         writeBack(writeBackList, disk, callbackTracker);
       });
       writeBackThread.start();
+
+      // 等待recovery完成，这里用简单的不断获取锁检查的方法
+      boolean done = false;
+      while (!done) {
+        lock.lock();
+        done = writeBackList.getNextWriteback() == null;
+        lock.unlock();
+        Common.debugPrintln("done", done);
+      }
+      
     } catch (Exception e) {
       e.printStackTrace();
     }
