@@ -14,10 +14,11 @@ import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Vector;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 
-public class ADisk {
+public class ADisk implements AutoCloseable {
 
   // -------------------------------------------------------
   // The size of the redo log in sectors
@@ -47,13 +48,13 @@ public class ADisk {
 
 
   private Thread writeBackThread;
-  private boolean doWriteBack;
 
   // internal class都做了并发控制，貌似不需要控制并发了
   // 但是测试时希望能获取到事务提交的顺序
   private SimpleLock lock;
   private Condition writeBackCond;
   private Condition activateListNotFullCond;
+  private AtomicBoolean shutdown;
 
   // -------------------------------------------------------
   //
@@ -79,9 +80,11 @@ public class ADisk {
       lock = new SimpleLock();
       writeBackCond = lock.newCondition();
       activateListNotFullCond = lock.newCondition();
+      shutdown = new AtomicBoolean(false);
 
       committedOrder = new Vector<>();
       nextCommitSeq = new AtomicLong(0);
+
 
       // 格式化磁盘或者日志恢复
       if (format) {
@@ -94,12 +97,22 @@ public class ADisk {
       } else {
         recovery();
       }
+
       // 启动一个线程完成writeback工作
-      doWriteBack = true;
        writeBackThread = new Thread(() -> {
-        writeBack(writeBackList, disk, callbackTracker);
+        writeBack(writeBackList, disk, callbackTracker, shutdown);
       });
       writeBackThread.start();
+
+      // 等待recovery完成，这里用简单的不断获取锁检查的方法
+      boolean done = false;
+      while (!done) {
+        lock.lock();
+        done = writeBackList.getNextWriteback() == null;
+        lock.unlock();
+        Common.debugPrintln("done", done);
+      }
+      assert writeBackList.getNextWriteback() == null;
     } catch (Exception e) {
       e.printStackTrace();
     }
@@ -243,7 +256,7 @@ public class ADisk {
 
       writeBackCond.signal();
 
-      // Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), " log sectors: ", transaction.recallLogSectorNSectors());
+      Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), " log start: ", transaction.recallLogSectorStart());
 
       // 批次更新head
     } catch (Exception e) {
@@ -390,20 +403,24 @@ public class ADisk {
     return committedOrder;
   }
 
-  public void writeBack(WriteBackList writeBackList, Disk disk, CallbackTracker callbackTracker) {
+  public void writeBack(WriteBackList writeBackList, Disk disk, CallbackTracker callbackTracker, AtomicBoolean shutdown) {
     Transaction transaction = null;
     int updatedSectors = 0;
     int sectorNum = 0;
     int tag = 0;
     Vector<Integer> tags = new Vector<>();
     byte[] logStatusBuffer = new byte[Disk.SECTOR_SIZE];
-
-    while (doWriteBack) {
+    
+    Common.debugPrintln("Write back start");
+    while (true) {
       try {
           lock.lock();
 
-          while ((transaction = writeBackList.getNextWriteback()) == null) {
+          while ((transaction = writeBackList.getNextWriteback()) == null && shutdown.get() == false) {
             writeBackCond.await();
+          }
+          if (transaction == null) {
+            break;
           }
 
           // 将该事务的更新块写入磁盘
@@ -417,7 +434,6 @@ public class ADisk {
             disk.startRequest(Disk.WRITE, tag, sectorNum, buffer);
           }
           callbackTracker.waitForTags(tags);
-          writeBackList.removeNextWriteback();
 
           // 为了简单起见，每次都写回logstatus判断是否需要更新
           // 为避免频繁更新tail，可以采用例如批次更新的方法
@@ -425,8 +441,8 @@ public class ADisk {
           logStatus.writeLogStatus(logStatusBuffer);
           disk.startRequest(Disk.WRITE, 0, LOG_STATUS_SECTOR_NUMBER, logStatusBuffer);
           callbackTracker.waitForTag(0); // 等待以保证更新顺序
-        } catch (InterruptedException e) {
-          doWriteBack = false;
+          Common.debugPrintln("Write back", transaction.getTransID().toInt());
+          writeBackList.removeNextWriteback();
         } catch (Exception e) {
           e.printStackTrace();
         } finally {
@@ -492,7 +508,6 @@ public class ADisk {
       callbackTracker.waitForTag(0);
       logStatus = LogStatus.parseLogStatus(buffer);
       tail = logStatus.getTail();
-      Common.debugPrintln("recovery tail ", tail);
       
       // 临时用一个“假”事务，主要用于构造tag
       TransID transID = new TransID(0);
@@ -502,7 +517,6 @@ public class ADisk {
       LinkedHashMap<Integer, byte[]> sectorWriteRecords = null;
 
       head = tail;
-      Common.debugPrintln(head);
       while (true) {
         // 读取下一个事务的首个扇区并判断是否合法
         tag = genTag(transID, Disk.READ, logIndex2secNum(0, head));
@@ -557,6 +571,7 @@ public class ADisk {
         head %=  Disk.ADISK_REDO_LOG_SECTORS;
         // result.add(new TestCommittedInfo(transaction.getTransID().toInt(), transaction.getCommittedSeq(), 
           // transaction.recallLogSectorStart(), transaction.recallLogSectorNSectors()));
+      Common.debugPrintln("recovery trans ", transaction.getTransID().toInt(), "log start", transaction.recallLogSectorStart());
       }
 
       assert usedSectors >= logStatus.getUsedSectors();
@@ -568,6 +583,17 @@ public class ADisk {
 
     // return result;
   }
+
+  @Override
+    public void close() {
+        shutdown.set(true);
+        try {
+          writeBackThread.join();
+      } catch (InterruptedException e) {
+          e.printStackTrace();
+      }
+      Common.debugPrintln("ADisk exit");
+    }
 
   // logStart是在磁盘日志区为事务分配的空间的逻辑起始位置
   // index是指定的扇区的逻辑下标

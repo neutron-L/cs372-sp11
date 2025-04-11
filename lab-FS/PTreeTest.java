@@ -33,6 +33,7 @@ public class PTreeTest {
 
         assert 0 == ptree.checkUsedBlocks(xid);
         ptree.commitTrans(xid);
+        ptree.close();
 
         System.out.println("Test 1 Passed!");
     }
@@ -178,6 +179,7 @@ public class PTreeTest {
         assert totFreeTrees == ptree.getParam(PTree.ASK_FREE_TREES);
 
         ptree.commitTrans(xid);
+        ptree.close();
 
         System.out.println("Test 2 Passed!");
     }
@@ -261,7 +263,7 @@ public class PTreeTest {
 
         // 写入了太多块，只能abort
         ptree.abortTrans(xid);
-        
+        ptree.close();
 
         System.out.println("Test 3 Passed!");
     }
@@ -336,7 +338,6 @@ public class PTreeTest {
         assert Arrays.equals(readBuffer, writeBuffer);
 
         ptree.commitTrans(xid);
-
         ptree.close();
 
         System.out.println("Test 4 Passed!");
