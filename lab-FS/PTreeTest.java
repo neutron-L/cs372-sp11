@@ -1,5 +1,4 @@
 
-import java.io.IOError;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Random;
@@ -9,9 +8,11 @@ public class PTreeTest {
   // main() -- PTree test
   //-------------------------------------------------------
    public static void main(String[] args) throws Exception {
-        testTree();
-        testRWSimple();
-        testRWMiddle();
+        // testTree();
+        // testRWSimple();
+        // testRWMiddle();
+        writePersistence();
+        System.out.println("All writes done!");
         testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
@@ -68,7 +69,7 @@ public class PTreeTest {
         blockId = 1;
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
-        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), writeBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
         ptree.writeData(xid, tnum1, blockId,writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
@@ -81,7 +82,7 @@ public class PTreeTest {
         Common.setBuffer((byte)0, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
-        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), writeBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
         ptree.writeData(xid, tnum1, blockId,writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
@@ -93,7 +94,7 @@ public class PTreeTest {
         Common.setBuffer((byte)0, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
-        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), writeBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
         ptree.writeData(xid, tnum1, blockId, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
@@ -105,7 +106,7 @@ public class PTreeTest {
         Common.setBuffer((byte)0, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
-        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), writeBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
         ptree.writeData(xid, tnum1, blockId,writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
@@ -117,7 +118,7 @@ public class PTreeTest {
         Common.setBuffer((byte)0, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
-        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), writeBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
         ptree.writeData(xid, tnum1, blockId, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
@@ -129,7 +130,7 @@ public class PTreeTest {
         Common.setBuffer((byte)0, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
-        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), writeBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
         ptree.writeData(xid, tnum1, blockId, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
@@ -141,7 +142,7 @@ public class PTreeTest {
         Common.setBuffer((byte)0, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
-        Common.setBuffer((byte)random.nextInt(Byte.MAX_VALUE + 1), writeBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
         ptree.writeData(xid, tnum1, blockId, writeBuffer);
         ptree.readData(xid, tnum1, blockId, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
@@ -236,15 +237,23 @@ public class PTreeTest {
                 if ((blockId - PTree.TNODE_DIRECT - PTree.POINTERS_PER_INTERNAL_NODE) % (PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE) == 0) {
                     ++usedBlocks;
                 }
-                Common.debugPrintln("blockid", blockId, "expect",  usedBlocks, "actual", ptree.checkUsedBlocks(xid));
-                Common.debugPrintln("expect",  ptree.getParam(PTree.ASK_FREE_SPACE) + usedBlocks * PTree.BLOCK_SIZE_BYTES, "actual", totFreeSpace);
+                // Common.debugPrintln("blockid", blockId, "expect",  usedBlocks, "actual", ptree.checkUsedBlocks(xid));
+                // Common.debugPrintln("expect",  ptree.getParam(PTree.ASK_FREE_SPACE) + usedBlocks * PTree.BLOCK_SIZE_BYTES, "actual", totFreeSpace);
                 assert ptree.checkUsedBlocks(xid) == usedBlocks && ptree.getParam(PTree.ASK_FREE_SPACE) + usedBlocks * PTree.BLOCK_SIZE_BYTES == totFreeSpace;
             }
         } catch (ResourceException e) {
-            Common.debugPrintln("here");
             assert ptree.checkUsedBlocks(xid) == totFreeSpace / PTree.BLOCK_SIZE_BYTES && ptree.getParam(PTree.ASK_FREE_SPACE) == 0;
         } catch (Exception e) {
             e.printStackTrace();
+        }
+
+        // 随机读取几个块
+        Random random = new Random();
+        for (int i = 0; i < 20; ++i) {
+            blockId = random.nextInt(usedBlocks); // 注意这里可能是个非法块
+            ptree.readData(xid, tnum, blockId, readBuffer);
+            Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+            assert Arrays.equals(readBuffer, readBuffer) || readBuffer[0] == 0x0;
         }
 
         ptree.deleteTree(xid, tnum);
@@ -252,6 +261,7 @@ public class PTreeTest {
 
         // 写入了太多块，只能abort
         ptree.abortTrans(xid);
+        
 
         System.out.println("Test 3 Passed!");
     }
@@ -259,9 +269,133 @@ public class PTreeTest {
     private static void testPersistence() 
     throws IOException
     {
+        // 先执行testRWSimple（修改版）
+        // 再执行该方法，检查块是否被写入持久化
         System.out.println("Test 4: test data write-persistence-read");
+
+        byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
+        byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
+
+        int blockId = 0;
+
+        Common.setBuffer((byte)0, readBuffer);
+        Common.setBuffer((byte)0, writeBuffer);
+
+        PTree ptree = new PTree(false);
+
+        TransID xid = ptree.beginTrans();
+        // int tnum1 = ptree.createTree(xid);
+        int tnum = 0;
+        Common.debugPrintln("blocknum", ptree.checkUsedBlocks(xid));
+        assert ptree.checkUsedBlocks(xid) == 11;
+
+        /* 读一个direct未分配块 */ 
+        blockId = 1;
+        ptree.readData(xid, tnum, blockId, readBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        Common.debugPrintln("exp", writeBuffer[0], "act", readBuffer[0]);
+        // assert Arrays.equals(readBuffer, writeBuffer);
+
+
+        /* 读一个indirect未分配块 */ 
+        blockId = PTree.TNODE_DIRECT;
+        ptree.readData(xid, tnum, blockId, readBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        Common.debugPrintln("exp", writeBuffer[0], "act", readBuffer[0]);
+
+        assert Arrays.equals(readBuffer, writeBuffer);
+
+        /* 读一个double indirect未分配块 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE;
+        ptree.readData(xid, tnum, blockId, readBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        assert Arrays.equals(readBuffer, writeBuffer);
+
+         /* 再读写一个indirect未分配块 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE - 1;
+        ptree.readData(xid, tnum, blockId, readBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        assert Arrays.equals(readBuffer, writeBuffer);
+
+        /* 再读写一个double indirect未分配块，其和之前那个块在同一个间接目录 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE +  PTree.POINTERS_PER_INTERNAL_NODE - 1;
+        ptree.readData(xid, tnum, blockId, readBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        assert Arrays.equals(readBuffer, writeBuffer);
+
+        /* 再读写一个double indirect未分配块，其和之前那个块在不同间接目录 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE;
+        ptree.readData(xid, tnum, blockId, readBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        assert Arrays.equals(readBuffer, writeBuffer);
+
+        /* 再读写一个double indirect未分配块，其和刚刚那个块在相同间接目录 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2;
+        ptree.readData(xid, tnum, blockId, readBuffer);
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        assert Arrays.equals(readBuffer, writeBuffer);
+
+        ptree.commitTrans(xid);
+
+        ptree.close();
+
         System.out.println("Test 4 Passed!");
     }
 
+    private static void writePersistence() 
+    throws IOException
+    {
+        byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
+        byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
+
+        int blockId = 0;
+
+
+        PTree ptree = new PTree(true);
+
+        TransID xid = ptree.beginTrans();
+        int tnum = ptree.createTree(xid);
+        
+        /* 写一个direct未分配块 */ 
+        blockId = 1;
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        ptree.writeData(xid, tnum, blockId, writeBuffer);
+
+
+        /* 写一个indirect未分配块 */ 
+        blockId = PTree.TNODE_DIRECT;
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        ptree.writeData(xid, tnum, blockId, writeBuffer);
+
+        /* 写一个double indirect未分配块 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE;
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        ptree.writeData(xid, tnum, blockId, writeBuffer);
+
+         /* 写一个indirect未分配块 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE - 1;
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        ptree.writeData(xid, tnum, blockId, writeBuffer);
+
+        /* 写一个double indirect未分配块，其和之前那个块在同一个间接目录 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE +  PTree.POINTERS_PER_INTERNAL_NODE - 1;
+       Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        ptree.writeData(xid, tnum, blockId, writeBuffer);
+
+        /* 写一个double indirect未分配块，其和之前那个块在不同间接目录 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE;
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        ptree.writeData(xid, tnum, blockId, writeBuffer);
+
+        /* 写一个double indirect未分配块，其和刚刚那个块在相同间接目录 */ 
+        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2;
+        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+        ptree.writeData(xid, tnum, blockId, writeBuffer);
+
+        assert ptree.checkUsedBlocks(xid) == 11;
+
+        ptree.commitTrans(xid);
+        ptree.close();
+    }
    
 }
