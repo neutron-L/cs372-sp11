@@ -1,6 +1,7 @@
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.Random;
 
 public class PTreeTest {
@@ -11,7 +12,7 @@ public class PTreeTest {
         // testTree();
         // testRWSimple();
         // testRWMiddle();
-        writePersistence();
+        // writePersistence();
         System.out.println("All writes done!");
         testPersistence();
         System.out.println("All Tests Passed!");
@@ -278,10 +279,16 @@ public class PTreeTest {
         byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
         byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
 
-        int blockId = 0;
+        LinkedList<Integer> blockIds = new LinkedList<>();
 
-        Common.setBuffer((byte)0, readBuffer);
-        Common.setBuffer((byte)0, writeBuffer);
+         
+        blockIds.add(1);  // 写一个direct未分配块 
+        blockIds.add(PTree.TNODE_DIRECT); //  写一个indirect未分配块
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE);  // 写一个double indirect未分配块
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE - 1); // 写一个indirect未分配块
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE +  PTree.POINTERS_PER_INTERNAL_NODE - 1); // 写一个double indirect未分配块，其和之前那个块在同一个间接目录
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE); // 写一个double indirect未分配块，其和之前那个块在不同间接目录
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2); // 写一个double indirect未分配块，其和刚刚那个块在相同间接目录
 
         PTree ptree = new PTree(false);
 
@@ -291,51 +298,11 @@ public class PTreeTest {
         Common.debugPrintln("blocknum", ptree.checkUsedBlocks(xid));
         assert ptree.checkUsedBlocks(xid) == 11;
 
-        /* 读一个direct未分配块 */ 
-        blockId = 1;
-        ptree.readData(xid, tnum, blockId, readBuffer);
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        Common.debugPrintln("exp", writeBuffer[0], "act", readBuffer[0]);
-        // assert Arrays.equals(readBuffer, writeBuffer);
-
-
-        /* 读一个indirect未分配块 */ 
-        blockId = PTree.TNODE_DIRECT;
-        ptree.readData(xid, tnum, blockId, readBuffer);
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        Common.debugPrintln("exp", writeBuffer[0], "act", readBuffer[0]);
-
-        assert Arrays.equals(readBuffer, writeBuffer);
-
-        /* 读一个double indirect未分配块 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE;
-        ptree.readData(xid, tnum, blockId, readBuffer);
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        assert Arrays.equals(readBuffer, writeBuffer);
-
-         /* 再读写一个indirect未分配块 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE - 1;
-        ptree.readData(xid, tnum, blockId, readBuffer);
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        assert Arrays.equals(readBuffer, writeBuffer);
-
-        /* 再读写一个double indirect未分配块，其和之前那个块在同一个间接目录 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE +  PTree.POINTERS_PER_INTERNAL_NODE - 1;
-        ptree.readData(xid, tnum, blockId, readBuffer);
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        assert Arrays.equals(readBuffer, writeBuffer);
-
-        /* 再读写一个double indirect未分配块，其和之前那个块在不同间接目录 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE;
-        ptree.readData(xid, tnum, blockId, readBuffer);
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        assert Arrays.equals(readBuffer, writeBuffer);
-
-        /* 再读写一个double indirect未分配块，其和刚刚那个块在相同间接目录 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2;
-        ptree.readData(xid, tnum, blockId, readBuffer);
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        assert Arrays.equals(readBuffer, writeBuffer);
+        for (int blockId : blockIds) {
+            ptree.readData(xid, tnum, blockId, readBuffer);
+            Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+            assert Arrays.equals(readBuffer, writeBuffer);
+        }
 
         ptree.commitTrans(xid);
         ptree.close();
@@ -346,52 +313,27 @@ public class PTreeTest {
     private static void writePersistence() 
     throws IOException
     {
-        byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
         byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
+        LinkedList<Integer> blockIds = new LinkedList<>();
 
-        int blockId = 0;
-
+         
+        blockIds.add(1);  // 写一个direct未分配块 
+        blockIds.add(PTree.TNODE_DIRECT); //  写一个indirect未分配块
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE);  // 写一个double indirect未分配块
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE - 1); // 写一个indirect未分配块
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE +  PTree.POINTERS_PER_INTERNAL_NODE - 1); // 写一个double indirect未分配块，其和之前那个块在同一个间接目录
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE); // 写一个double indirect未分配块，其和之前那个块在不同间接目录
+        blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2); // 写一个double indirect未分配块，其和刚刚那个块在相同间接目录
 
         PTree ptree = new PTree(true);
 
         TransID xid = ptree.beginTrans();
         int tnum = ptree.createTree(xid);
-        
-        /* 写一个direct未分配块 */ 
-        blockId = 1;
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        ptree.writeData(xid, tnum, blockId, writeBuffer);
 
-
-        /* 写一个indirect未分配块 */ 
-        blockId = PTree.TNODE_DIRECT;
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        ptree.writeData(xid, tnum, blockId, writeBuffer);
-
-        /* 写一个double indirect未分配块 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE;
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        ptree.writeData(xid, tnum, blockId, writeBuffer);
-
-         /* 写一个indirect未分配块 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE - 1;
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        ptree.writeData(xid, tnum, blockId, writeBuffer);
-
-        /* 写一个double indirect未分配块，其和之前那个块在同一个间接目录 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE +  PTree.POINTERS_PER_INTERNAL_NODE - 1;
-       Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        ptree.writeData(xid, tnum, blockId, writeBuffer);
-
-        /* 写一个double indirect未分配块，其和之前那个块在不同间接目录 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE;
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        ptree.writeData(xid, tnum, blockId, writeBuffer);
-
-        /* 写一个double indirect未分配块，其和刚刚那个块在相同间接目录 */ 
-        blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2;
-        Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-        ptree.writeData(xid, tnum, blockId, writeBuffer);
+        for (int blockId : blockIds) {
+            Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
+            ptree.writeData(xid, tnum, blockId, writeBuffer);
+        }
 
         assert ptree.checkUsedBlocks(xid) == 11;
 
