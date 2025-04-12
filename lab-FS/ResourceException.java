@@ -11,4 +11,6 @@
  */
 public class ResourceException extends RuntimeException{
   public ResourceException(){super();}
+
+  public ResourceException(String string) { super(string); }
 }
