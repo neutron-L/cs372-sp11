@@ -124,18 +124,17 @@ public class FlatFS implements AutoCloseable {
     ptree.readTreeMetadata(xid, inumber, inodeBuffer);
     FileInode inode = FileInode.parseTNode(inodeBuffer);
 
-    int tot = Math.min(count, inode.fileSize - offset);
+    int tot = count;
     int n = 0;
     int blockId = offset / PTree.BLOCK_SIZE_BYTES;
     int old_offset = offset;
     int num = 0;
     while (n < tot) {
-      offset %= PTree.BLOCK_SIZE_BYTES;
-      if (offset != 0 || tot - n < PTree.BLOCK_SIZE_BYTES) {
+      if (offset < inode.fileSize && (offset % PTree.BLOCK_SIZE_BYTES != 0 || tot - n < PTree.BLOCK_SIZE_BYTES)) {
         ptree.readData(xid, inumber, blockId, blockBuffer);
       }
-      num = Math.min(tot - n, PTree.BLOCK_SIZE_BYTES - offset);
-      System.arraycopy(buffer, n, blockBuffer, offset, num);
+      num = Math.min(tot - n, PTree.BLOCK_SIZE_BYTES - offset % PTree.BLOCK_SIZE_BYTES);
+      System.arraycopy(buffer, n, blockBuffer, offset % PTree.BLOCK_SIZE_BYTES, num);
       ptree.writeData(xid, inumber, blockId, blockBuffer);
       n += num;
       offset += num;
