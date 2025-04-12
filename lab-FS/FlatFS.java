@@ -9,7 +9,6 @@
  */
 
 import java.io.IOException;
-import java.net.FileNameMap;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
@@ -20,7 +19,7 @@ import java.io.File;
  * 可以定义一个保存文件inode信息的结构体，将其存储在tnode的meta中
  * 
  */
-public class FlatFS{
+public class FlatFS implements AutoCloseable {
 
   public static final int ASK_MAX_FILE = 2423;
   public static final int ASK_FREE_SPACE_BLOCKS = 29542;
@@ -34,7 +33,7 @@ public class FlatFS{
     throws IOException
   {
     ptree = new PTree(doFormat);
-    fileMetaSize = ptree.getParam(ASK_FILE_METADATA_SIZE);
+    fileMetaSize = PTree.METADATA_SIZE;
   }
 
   public TransID beginTrans()
@@ -132,7 +131,7 @@ public class FlatFS{
     int num = 0;
     while (n < tot) {
       offset %= PTree.BLOCK_SIZE_BYTES;
-      if (offset != 0) {
+      if (offset != 0 || tot - n < PTree.BLOCK_SIZE_BYTES) {
         ptree.readData(xid, inumber, blockId, blockBuffer);
       }
       num = Math.min(tot - n, PTree.BLOCK_SIZE_BYTES - offset);
@@ -181,7 +180,10 @@ public class FlatFS{
   }
     
 
-  
+  @Override
+  public void close() {
+      ptree.close();
+  }
   
 
 }
@@ -221,4 +223,5 @@ class FileInode {
       throw new IllegalArgumentException("Bad Buffer");
     }
   }
+
 }
