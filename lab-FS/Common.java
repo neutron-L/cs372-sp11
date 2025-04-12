@@ -55,4 +55,17 @@ public class Common {
     return;
   }
 
+  public static void setBuffer(byte value, byte b[], int count) 
+  throws IllegalArgumentException
+  {
+    if (count > b.length) {
+      throw new IllegalArgumentException("Bad buffer");
+    }
+    int ii;
+    for (ii = 0; ii < count; ii++) {
+      b[ii] = value;
+    }
+    return;
+  }
+
 }

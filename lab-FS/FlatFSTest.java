@@ -9,10 +9,9 @@ public class FlatFSTest {
   // main() -- FlatFS test
   //-------------------------------------------------------
    public static void main(String[] args) throws Exception {
-        // testFlatFS();
-        // testRWSimple();
-        // testRWMiddle();
-        // writePersistence();
+        testFlatFS();
+        testRWSimple();
+        testRWMiddle();
         testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
@@ -197,6 +196,8 @@ public class FlatFSTest {
     throws IOException
     {
         // 先执行writePersistence
+        writePersistence();
+
         // 再执行该方法，检查块是否被写入持久化
         System.out.println("Test 4: test data write-persistence-read");
 
