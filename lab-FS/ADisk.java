@@ -44,7 +44,6 @@ public class ADisk implements AutoCloseable {
   private Disk disk;
 
   private Vector<Integer> committedOrder;
-  private AtomicLong nextCommitSeq;
 
 
   private Thread writeBackThread;
@@ -83,7 +82,6 @@ public class ADisk implements AutoCloseable {
       shutdown = new AtomicBoolean(false);
 
       committedOrder = new Vector<>();
-      nextCommitSeq = new AtomicLong(0);
 
 
       // 格式化磁盘或者日志恢复
@@ -110,7 +108,6 @@ public class ADisk implements AutoCloseable {
         lock.lock();
         done = writeBackList.getNextWriteback() == null;
         lock.unlock();
-        Common.debugPrintln("done", done);
       }
       assert writeBackList.getNextWriteback() == null;
     } catch (Exception e) {
@@ -212,7 +209,8 @@ public class ADisk implements AutoCloseable {
         writeBackCond.awaitUninterruptibly();
       }
       transaction.rememberLogSectors(logStart, logSectors);
-      transaction.commit(nextCommitSeq.getAndIncrement());
+      // transaction.commit(nextCommitSeq.getAndIncrement());
+      transaction.commit(logStatus.getAndIncrementSeq());
       
 
       // 获取事务的log sector list
@@ -247,7 +245,7 @@ public class ADisk implements AutoCloseable {
       disk.startRequest(Disk.WRITE, tag, logIndex2secNum(logStart, logSectors - 1), commitBuffer);
 
       // 这里持有锁等待，所有事务提交全变成顺序了
-      callbackTracker.dontWaitForTag(tag);
+      callbackTracker.waitForTag(tag);
 
 
       // transact移入写回队列
@@ -256,7 +254,7 @@ public class ADisk implements AutoCloseable {
 
       writeBackCond.signal();
 
-      Common.debugPrintln("trans id: ", transaction.getTransID().toInt(), " log start: ", transaction.recallLogSectorStart());
+      Common.debugPrintln("trans seq: ", transaction.getCommittedSeq(), " log start: ", transaction.recallLogSectorStart());
 
       // 批次更新head
     } catch (Exception e) {
@@ -414,12 +412,16 @@ public class ADisk implements AutoCloseable {
     Common.debugPrintln("Write back start");
     while (true) {
       try {
+        Common.debugPrintln("here");
           lock.lock();
 
           while ((transaction = writeBackList.getNextWriteback()) == null && shutdown.get() == false) {
             writeBackCond.await();
           }
-          if (transaction == null) {
+          if (shutdown.get() == true) {
+            if (transaction != null) {
+              Common.debugPrintln("No write back", transaction.recallLogSectorStart(), "seq", transaction.getCommittedSeq());
+            }
             break;
           }
 
@@ -441,7 +443,7 @@ public class ADisk implements AutoCloseable {
           logStatus.writeLogStatus(logStatusBuffer);
           disk.startRequest(Disk.WRITE, 0, LOG_STATUS_SECTOR_NUMBER, logStatusBuffer);
           callbackTracker.waitForTag(0); // 等待以保证更新顺序
-          Common.debugPrintln("Write back", transaction.getTransID().toInt());
+          Common.debugPrintln("Write back", transaction.recallLogSectorStart(), "seq", transaction.getCommittedSeq());
           writeBackList.removeNextWriteback();
         } catch (Exception e) {
           e.printStackTrace();
@@ -498,7 +500,7 @@ public class ADisk implements AutoCloseable {
     int tail = 0;
     int usedSectors = 0;
     int logSectors = 0;
-    long prevCommitSeq = -1;
+    long nextCommitSeq = 0;
 
     try {
       // 读取第一个扇区获取logStatus记录的日志起点
@@ -508,6 +510,7 @@ public class ADisk implements AutoCloseable {
       callbackTracker.waitForTag(0);
       logStatus = LogStatus.parseLogStatus(buffer);
       tail = logStatus.getTail();
+      nextCommitSeq = logStatus.getNextCommitSeq();
       
       // 临时用一个“假”事务，主要用于构造tag
       TransID transID = new TransID(0);
@@ -517,6 +520,7 @@ public class ADisk implements AutoCloseable {
       LinkedHashMap<Integer, byte[]> sectorWriteRecords = null;
 
       head = tail;
+      Common.debugPrintln("head", head);
       while (true) {
         // 读取下一个事务的首个扇区并判断是否合法
         tag = genTag(transID, Disk.READ, logIndex2secNum(0, head));
@@ -524,15 +528,16 @@ public class ADisk implements AutoCloseable {
         callbackTracker.waitForTag(tag);
 
         logSectors = Transaction.parseHeader(buffer, headerList);
-        if (logSectors == -1 || headerList[0].status != Transaction.COMMITTED || headerList[0].logStart != head) {
-          Common.debugPrintln("Read header sector transaction, break", logSectors, " ", headerList[0].status, " : ", headerList[0].logStart, " ", logIndex2secNum(0, head));
+        if (logSectors == -1 || headerList[0] == null || headerList[0].status != Transaction.COMMITTED || headerList[0].logStart != head) {
+          Common.debugPrintln("Read header sector transaction, break", logSectors);
+          Common.debugPrintln(logIndex2secNum(0, head));
           break;
         }
 
-        if (prevCommitSeq == -1 || prevCommitSeq == headerList[0].commitSeq - 1) {
-          prevCommitSeq = headerList[0].commitSeq;
+        if (nextCommitSeq == headerList[0].commitSeq) {
+          ++nextCommitSeq;
         } else {
-          Common.debugPrintln("invalid commitSeq: ", headerList[0].commitSeq , "; prev commitseq: ",  prevCommitSeq, ", break");
+          Common.debugPrintln("invalid commitSeq: ", headerList[0].commitSeq , "; expect commitseq: ",  nextCommitSeq, ", break");
           break;
         }
 
@@ -557,7 +562,7 @@ public class ADisk implements AutoCloseable {
         transaction.writeCommit(commitBuffer);
         if (!Arrays.equals(buffer, commitBuffer)) {
           // 非法事务
-          Common.debugPrintln("Read invalid commit sector transaction, break");
+          Common.debugPrintln("Read invalid commit sector transaction", transaction.getTransID().toInt(), ", break");
           break;
         }
         // Common.debugPrintln("Trans id: ", transaction.getTransID().toInt());
@@ -571,11 +576,12 @@ public class ADisk implements AutoCloseable {
         head %=  Disk.ADISK_REDO_LOG_SECTORS;
         // result.add(new TestCommittedInfo(transaction.getTransID().toInt(), transaction.getCommittedSeq(), 
           // transaction.recallLogSectorStart(), transaction.recallLogSectorNSectors()));
-      Common.debugPrintln("recovery trans ", transaction.getTransID().toInt(), "log start", transaction.recallLogSectorStart());
+      Common.debugPrintln("recovery trans ", transaction.getCommittedSeq(), "log start", transaction.recallLogSectorStart());
       }
 
       assert usedSectors >= logStatus.getUsedSectors();
-      nextCommitSeq.set(prevCommitSeq + 1);
+      // nextCommitSeq.set(nextCommitSeq + 1);
+      logStatus.setNextCommitSeq(nextCommitSeq);
       logStatus.recoverySectorsInUse(tail, usedSectors);
     } catch (IOException e) {
       e.printStackTrace();
@@ -587,6 +593,9 @@ public class ADisk implements AutoCloseable {
   @Override
     public void close() {
         shutdown.set(true);
+        lock.lock();
+        writeBackCond.signal();
+        lock.unlock();
         try {
           writeBackThread.join();
       } catch (InterruptedException e) {

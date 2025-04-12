@@ -25,6 +25,8 @@ public class LogStatus {
     private int head;
     private int tail;
     private int usedSectors;
+    private long nextCommitSeq;
+
     // private SimpleLock lock;
     // private Condition freeSpace;
 
@@ -35,6 +37,7 @@ public class LogStatus {
         // freeSpace = lock.newCondition();
         head = tail = 0;
         usedSectors = 0;
+        nextCommitSeq = 0;
 
         // 设置日志级别为 FINE，用于调试信息输出
         LOGGER.setLevel(Level.WARNING);
@@ -46,11 +49,12 @@ public class LogStatus {
         LOGGER.addHandler(consoleHandler);
     }
 
-    public LogStatus(int tail, int usedSectors) {
+    public LogStatus(int tail, int usedSectors, long nextCommitSeq) {
         // lock = new SimpleLock();
         // freeSpace = lock.newCondition();
         this.tail = tail;
         this.usedSectors = usedSectors;
+        this.nextCommitSeq = nextCommitSeq;
         this.head = (this.tail + usedSectors) % Disk.ADISK_REDO_LOG_SECTORS;
 
         // 设置日志级别为 FINE，用于调试信息输出
@@ -162,6 +166,10 @@ public class LogStatus {
     public int getTail() { return this.tail; }
     public int getHead() { return this.head; }
     public int getUsedSectors() { return this.usedSectors; }
+    public long getNextCommitSeq() { return this.nextCommitSeq; }
+    public void setNextCommitSeq(long nextCommitSeq) { this.nextCommitSeq = nextCommitSeq; }
+    public long getAndIncrementSeq() { return this.nextCommitSeq++; }
+    
 
     public void writeLogStatus(byte[] buffer) 
     throws IllegalArgumentException
@@ -176,6 +184,7 @@ public class LogStatus {
         // 序列化 transID
         byteBuffer.putInt(tail);
         byteBuffer.putInt(usedSectors);
+        byteBuffer.putLong(nextCommitSeq);
     }
 
     public static LogStatus parseLogStatus(byte[] buffer) 
@@ -189,7 +198,8 @@ public class LogStatus {
         // 序列化 transID
         int tail = byteBuffer.getInt();
         int usedSectors = byteBuffer.getInt();
+        long nextCommitSeq = byteBuffer.getLong();
 
-        return new LogStatus(tail, usedSectors);
+        return new LogStatus(tail, usedSectors, nextCommitSeq);
     }
 }
