@@ -272,7 +272,7 @@ public class PTreeTest {
     private static void testPersistence() 
     throws IOException
     {
-        // 先执行testRWSimple（修改版）
+        // 先执行writePersistence（修改版）
         // 再执行该方法，检查块是否被写入持久化
         System.out.println("Test 4: test data write-persistence-read");
 
