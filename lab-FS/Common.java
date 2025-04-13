@@ -81,7 +81,6 @@ public class Common {
     try {
         // 指定 UTF-8 字符集将字节数组转换为字符串
         str = new String(bytes, "UTF-8"); 
-        System.out.println(str);
     } catch (UnsupportedEncodingException e) {
         e.printStackTrace();
         return null;

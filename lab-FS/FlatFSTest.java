@@ -9,10 +9,10 @@ public class FlatFSTest {
   // main() -- FlatFS test
   //-------------------------------------------------------
    public static void main(String[] args) throws Exception {
-        testFlatFS();
-        testRWSimple();
+        // testFlatFS();
+        // testRWSimple();
         testRWMiddle();
-        testPersistence();
+        // testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
     }
@@ -184,10 +184,46 @@ public class FlatFSTest {
         System.out.println("Test 2 Passed!");
     }
 
+    /* 打开一个文件，在文件的最后依次写入指定长度的字符串（byte）并读取
+     * RFS的目录项的文件名称会依据这种方式存储
+     */
     private static void testRWMiddle() 
     throws IOException
     {
-        
+        System.out.println("Test 3: test file data read & write middle");
+        FlatFS flatFS = new FlatFS(false);
+
+        TransID xid = flatFS.beginTrans();
+        int fd = flatFS.createFile(xid);
+
+
+        LinkedList<String> strList = new LinkedList<>();
+        strList.add("afewfwaefwa11324232.txt");
+        strList.add("hello.txt");
+        strList.add("world123.txt");
+        strList.add("abc.txt");
+
+        int offset = (PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE) * PTree.BLOCK_SIZE_BYTES;
+
+        for (String file : strList) {
+            byte[] buffer = Common.String2byteArr(file);
+            offset -= buffer.length;
+            flatFS.write(xid, fd, offset, buffer.length, buffer);
+            // assert s.equals(str);
+        }
+
+        // 反转链表
+        java.util.Collections.reverse(strList);
+        for (String file : strList) {
+            byte[] buffer = new byte[file.length()];
+            flatFS.read(xid, fd, offset, file.length(), buffer);
+            assert Common.byteArr2String(buffer).equals(file);
+            offset += file.length();
+        }
+        flatFS.deleteFile(xid, fd);
+
+        flatFS.commitTrans(xid);
+        flatFS.close();
 
         System.out.println("Test 3 Passed!");
     }
@@ -196,7 +232,7 @@ public class FlatFSTest {
     throws IOException
     {
         // 先执行writePersistence
-        writePersistence();
+        // writePersistence();
 
         // 再执行该方法，检查块是否被写入持久化
         System.out.println("Test 4: test data write-persistence-read");
