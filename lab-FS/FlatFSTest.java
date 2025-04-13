@@ -28,10 +28,10 @@ public class FlatFSTest {
         FlatFS flatFS = new FlatFS(true);
 
         TransID xid = flatFS.beginTrans();
-        int fd1 = flatFS.createFile(xid);
-        int fd2 = flatFS.createFile(xid);
-        flatFS.deleteFile(xid, fd1);
-        flatFS.deleteFile(xid, fd2);
+        int inumber1 = flatFS.createFile(xid);
+        int inumber2 = flatFS.createFile(xid);
+        flatFS.deleteFile(xid, inumber1);
+        flatFS.deleteFile(xid, inumber2);
 
         flatFS.commitTrans(xid);
         flatFS.close();
@@ -53,7 +53,7 @@ public class FlatFSTest {
         FlatFS flatFS = new FlatFS(true);
 
         TransID xid = flatFS.beginTrans();
-        int fd = flatFS.createFile(xid);
+        int inumber = flatFS.createFile(xid);
 
         /* 检查方法是准备一块缓冲区，模拟期望的文件内容
           每次写入了文件的部分内容后，读取整个文件内容和
@@ -62,8 +62,8 @@ public class FlatFSTest {
         Common.setBuffer((byte)0, expectBuffer);
         offset = 0;
         count = expectBuffer.length;
-        flatFS.write(xid, fd, offset, count, expectBuffer);
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.write(xid, inumber, offset, count, expectBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, expectBuffer);
 
         // 一个块的读写
@@ -71,21 +71,21 @@ public class FlatFSTest {
         count = PTree.BLOCK_SIZE_BYTES;
         Common.setBuffer((byte)0xab, writeBuffer, count);
         
-        flatFS.write(xid, fd, offset, count, writeBuffer);
+        flatFS.write(xid, inumber, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
 
 
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 多个块的读写
         offset = 4 * PTree.BLOCK_SIZE_BYTES;
         count = 3 * PTree.BLOCK_SIZE_BYTES;
         Common.setBuffer((byte)0xcd, writeBuffer, count);
-        flatFS.write(xid, fd, offset, count, writeBuffer);
+        flatFS.write(xid, inumber, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
 
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         /* 一个块内的读写 */ 
@@ -93,30 +93,30 @@ public class FlatFSTest {
         offset = 0;
         count = PTree.BLOCK_SIZE_BYTES / 2;
         Common.setBuffer((byte)0x10, writeBuffer, count);
-        flatFS.write(xid, fd, offset, count, writeBuffer);
+        flatFS.write(xid, inumber, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
 
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 右3/4块写
         offset = PTree.BLOCK_SIZE_BYTES / 4;
         count = PTree.BLOCK_SIZE_BYTES / 4 * 3;
         Common.setBuffer((byte)0x20, writeBuffer, count);
-        flatFS.write(xid, fd, offset, count, writeBuffer);
+        flatFS.write(xid, inumber, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
 
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 中间1/2块写
         offset = PTree.BLOCK_SIZE_BYTES;
         count = PTree.BLOCK_SIZE_BYTES / 2;
         Common.setBuffer((byte)0x30, writeBuffer, count);
-        flatFS.write(xid, fd, offset, count, writeBuffer);
+        flatFS.write(xid, inumber, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
 
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         /* 跨越块的读写 */ 
@@ -124,27 +124,27 @@ public class FlatFSTest {
         offset = 7 * PTree.BLOCK_SIZE_BYTES + PTree.BLOCK_SIZE_BYTES / 2;
         count = PTree.BLOCK_SIZE_BYTES;
         Common.setBuffer((byte)0x40, writeBuffer, count);
-        flatFS.write(xid, fd, offset, count, writeBuffer);
+        flatFS.write(xid, inumber, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
 
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 中间隔着一个块
         offset = 2 * PTree.BLOCK_SIZE_BYTES + PTree.BLOCK_SIZE_BYTES / 2;
         count = 2 * PTree.BLOCK_SIZE_BYTES;
         Common.setBuffer((byte)0x50, writeBuffer, count);
-        flatFS.write(xid, fd, offset, count, writeBuffer);
+        flatFS.write(xid, inumber, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
 
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 检查文件整体内容
         offset = 0;
         count = expectBuffer.length;
 
-        flatFS.read(xid, fd, offset, count, readBuffer);
+        flatFS.read(xid, inumber, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, expectBuffer);
 
         // 写入导致文件extend
@@ -160,27 +160,27 @@ public class FlatFSTest {
         Common.setBuffer((byte)0, expect);
         Common.setBuffer((byte)0xea, extendBuffer, count);
 
-        flatFS.read(xid, fd, base, count, expect);
+        flatFS.read(xid, inumber, base, count, expect);
         System.arraycopy(extendBuffer, 0, expect, offset - base, count);
         System.arraycopy(extendBuffer, 0, expectBuffer, offset, count / 2);
 
-        flatFS.write(xid, fd, offset, count, extendBuffer);
+        flatFS.write(xid, inumber, offset, count, extendBuffer);
 
-        // flatFS.read(xid, fd, offset, count, buffer);
+        // flatFS.read(xid, inumber, offset, count, buffer);
         // assert Arrays.equals(buffer, extendBuffer);
 
         Common.setBuffer((byte)0xae, extendBuffer, count);
         System.arraycopy(extendBuffer, 0, expect, PTree.BLOCK_SIZE_BYTES, count);
 
-        flatFS.write(xid, fd, 10 * PTree.BLOCK_SIZE_BYTES, count, extendBuffer);
+        flatFS.write(xid, inumber, 10 * PTree.BLOCK_SIZE_BYTES, count, extendBuffer);
 
-        flatFS.read(xid, fd, base, 2 * PTree.BLOCK_SIZE_BYTES, buffer);
+        flatFS.read(xid, inumber, base, 2 * PTree.BLOCK_SIZE_BYTES, buffer);
 
         assert Arrays.equals(buffer, expect);
-        flatFS.read(xid, fd, 0, expectBuffer.length, readBuffer);
+        flatFS.read(xid, inumber, 0, expectBuffer.length, readBuffer);
         assert Arrays.equals(readBuffer, expectBuffer);
 
-        flatFS.deleteFile(xid, fd);
+        flatFS.deleteFile(xid, inumber);
         flatFS.commitTrans(xid);
         flatFS.close();
 
@@ -197,7 +197,7 @@ public class FlatFSTest {
         FlatFS flatFS = new FlatFS(false);
 
         TransID xid = flatFS.beginTrans();
-        int fd = flatFS.createFile(xid);
+        int inumber = flatFS.createFile(xid);
 
 
         LinkedList<String> strList = new LinkedList<>();
@@ -211,7 +211,7 @@ public class FlatFSTest {
         for (String file : strList) {
             byte[] buffer = Common.String2byteArr(file);
             offset -= buffer.length;
-            flatFS.write(xid, fd, offset, buffer.length, buffer);
+            flatFS.write(xid, inumber, offset, buffer.length, buffer);
             // assert s.equals(str);
         }
 
@@ -219,12 +219,12 @@ public class FlatFSTest {
         java.util.Collections.reverse(strList);
         for (String file : strList) {
             byte[] buffer = new byte[file.length()];
-            flatFS.read(xid, fd, offset, file.length(), buffer);
+            flatFS.read(xid, inumber, offset, file.length(), buffer);
             assert Common.byteArr2String(buffer).equals(file);
             offset += file.length();
         }
         assert offset == (PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE) * PTree.BLOCK_SIZE_BYTES;
-        flatFS.deleteFile(xid, fd);
+        flatFS.deleteFile(xid, inumber);
 
         flatFS.commitTrans(xid);
         flatFS.close();
@@ -257,13 +257,13 @@ public class FlatFSTest {
         FlatFS flatFS = new FlatFS(false);
 
         TransID xid = flatFS.beginTrans();
-        int fd = flatFS.createFile(xid);
+        int inumber = flatFS.createFile(xid);
 
-        flatFS.write(xid, fd, 0, content.length(), Common.String2byteArr(content));
+        flatFS.write(xid, inumber, 0, content.length(), Common.String2byteArr(content));
 
         byte[] buffer = new byte[content.length()];
 
-        flatFS.read(xid, fd, 0, content.length(), buffer);
+        flatFS.read(xid, inumber, 0, content.length(), buffer);
 
         String readStr = Common.byteArr2String(buffer);
         // Common.debugPrintln(readStr.length(), (content).length());
@@ -302,11 +302,11 @@ public class FlatFSTest {
         FlatFS flatFS = new FlatFS(false);
 
         TransID xid = flatFS.beginTrans();
-        // int fd = flatFS.createFile(xid);
-        int fd = 0;
+        // int inumber = flatFS.createFile(xid);
+        int inumber = 0;
 
         for (int blockId : blockIds) {
-            flatFS.read(xid, fd, blockId * PTree.BLOCK_SIZE_BYTES, PTree.BLOCK_SIZE_BYTES, readBuffer);
+            flatFS.read(xid, inumber, blockId * PTree.BLOCK_SIZE_BYTES, PTree.BLOCK_SIZE_BYTES, readBuffer);
             Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
             assert Arrays.equals(readBuffer, writeBuffer);
         }
@@ -335,11 +335,11 @@ public class FlatFSTest {
         FlatFS flatFS = new FlatFS(true);
 
         TransID xid = flatFS.beginTrans();
-        int fd = flatFS.createFile(xid);
+        int inumber = flatFS.createFile(xid);
 
         for (int blockId : blockIds) {
             Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-            flatFS.write(xid, fd, blockId * PTree.BLOCK_SIZE_BYTES, PTree.BLOCK_SIZE_BYTES, writeBuffer);
+            flatFS.write(xid, inumber, blockId * PTree.BLOCK_SIZE_BYTES, PTree.BLOCK_SIZE_BYTES, writeBuffer);
         }
 
         flatFS.commitTrans(xid);
