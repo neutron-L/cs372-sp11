@@ -9,11 +9,7 @@
  */
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.Arrays;
 import java.io.EOFException;
-import java.io.File;
 
 /* 是PTree的包装，简单地将一个tree作为文件，文件inode == tnum
  * 可以定义一个保存文件inode信息的结构体，将其存储在tnode的meta中
@@ -82,13 +78,13 @@ public class FlatFS implements AutoCloseable {
     // 利用meta存储file size
     byte[] inodeBuffer = new byte[fileMetaSize];
     ptree.readTreeMetadata(xid, inumber, inodeBuffer);
-    FileInode inode = FileInode.parseTNode(inodeBuffer);
+    FlatFSInode inode = FlatFSInode.parseInode(inodeBuffer);
 
-    if (offset >= inode.fileSize) {
+    if (offset >= inode.getFileSize()) {
       throw new EOFException("Bad offset");
     }
 
-    int tot = Math.min(count, inode.fileSize - offset);
+    int tot = Math.min(count, inode.getFileSize() - offset);
     int n = 0;
     int blockId = offset / PTree.BLOCK_SIZE_BYTES;
     int num = 0;
@@ -122,7 +118,7 @@ public class FlatFS implements AutoCloseable {
     // 利用meta存储file size
     byte[] inodeBuffer = new byte[fileMetaSize];
     ptree.readTreeMetadata(xid, inumber, inodeBuffer);
-    FileInode inode = FileInode.parseTNode(inodeBuffer);
+    FlatFSInode inode = FlatFSInode.parseInode(inodeBuffer);
 
     int tot = count;
     int n = 0;
@@ -130,7 +126,7 @@ public class FlatFS implements AutoCloseable {
     int old_offset = offset;
     int num = 0;
     while (n < tot) {
-      if (offset < inode.fileSize && (offset % PTree.BLOCK_SIZE_BYTES != 0 || tot - n < PTree.BLOCK_SIZE_BYTES)) {
+      if (offset < inode.getFileSize() && (offset % PTree.BLOCK_SIZE_BYTES != 0 || tot - n < PTree.BLOCK_SIZE_BYTES)) {
         ptree.readData(xid, inumber, blockId, blockBuffer);
       }
       num = Math.min(tot - n, PTree.BLOCK_SIZE_BYTES - offset % PTree.BLOCK_SIZE_BYTES);
@@ -142,9 +138,9 @@ public class FlatFS implements AutoCloseable {
     }
     offset = old_offset;
 
-    if (offset + count > inode.fileSize) {
-      inode.fileSize = offset + count;
-      inode.writeFileInode(inodeBuffer);
+    if (offset + count > inode.getFileSize()) {
+      inode.setFileSize(offset + count);
+      inode.writeInode(inodeBuffer);
       ptree.writeTreeMetadata(xid, inumber, inodeBuffer);
     }
   }
@@ -184,43 +180,5 @@ public class FlatFS implements AutoCloseable {
       ptree.close();
   }
   
-
-}
-
-class FileInode {
-  public int fileSize;
-  
-  public static FileInode parseTNode(byte[] buffer) 
-  throws IllegalArgumentException
-  {
-    FileInode.checkBuffer(buffer);
-    
-    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-    byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
-
-    FileInode inode = new FileInode();
-    inode.fileSize = byteBuffer.getInt();
-
-    return inode;
-  }
-
-  public void writeFileInode(byte[] buffer) 
-  throws IllegalArgumentException
-  {
-    FileInode.checkBuffer(buffer);
-
-    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
-    byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
-
-    byteBuffer.putInt(fileSize);
-  }
-
-  private static void checkBuffer(byte[] buffer) 
-  throws IllegalArgumentException
-  {
-    if (buffer == null || buffer.length != PTree.METADATA_SIZE) {
-      throw new IllegalArgumentException("Bad Buffer");
-    }
-  }
 
 }
