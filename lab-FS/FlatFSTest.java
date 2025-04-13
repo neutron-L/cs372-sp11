@@ -1,5 +1,7 @@
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.LinkedList;
 
@@ -12,6 +14,7 @@ public class FlatFSTest {
         // testFlatFS();
         // testRWSimple();
         testRWMiddle();
+        testRWComplex();
         // testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
@@ -220,12 +223,57 @@ public class FlatFSTest {
             assert Common.byteArr2String(buffer).equals(file);
             offset += file.length();
         }
+        assert offset == (PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE) * PTree.BLOCK_SIZE_BYTES;
         flatFS.deleteFile(xid, fd);
 
         flatFS.commitTrans(xid);
         flatFS.close();
 
         System.out.println("Test 3 Passed!");
+    }
+
+    /* 比较复杂的读写场景
+     * 创建多个文件，我们多次写入（可能覆盖性）一些字符文本并读取
+     * 更接近平时对文件系统功能的使用
+     * 为了简单性使用utf-8字符集，因此文件名和文件内容不能包括中文
+     */
+    private static void testRWComplex() 
+    throws IOException
+    {
+        System.out.println("Test 4: test file data read & write complex");
+
+        String filePath = "example.txt";
+        // String filePath = "ADisk.java";
+        String content = null;
+
+        try {
+            byte[] bytes = Files.readAllBytes(Paths.get(filePath));
+            content = new String(bytes);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return;
+        }
+
+        FlatFS flatFS = new FlatFS(false);
+
+        TransID xid = flatFS.beginTrans();
+        int fd = flatFS.createFile(xid);
+
+        flatFS.write(xid, fd, 0, content.length(), Common.String2byteArr(content));
+
+        byte[] buffer = new byte[content.length()];
+
+        flatFS.read(xid, fd, 0, content.length(), buffer);
+
+        String readStr = Common.byteArr2String(buffer);
+        // Common.debugPrintln(readStr.length(), (content).length());
+        assert readStr.length() == (content).length();
+        assert readStr.equals(content);
+
+        flatFS.commitTrans(xid);
+        flatFS.close();
+
+        System.out.println("Test 4 Passed!");
     }
 
     private static void testPersistence() 
@@ -235,7 +283,7 @@ public class FlatFSTest {
         // writePersistence();
 
         // 再执行该方法，检查块是否被写入持久化
-        System.out.println("Test 4: test data write-persistence-read");
+        System.out.println("Test 5: test data write-persistence-read");
 
         byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
         byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
@@ -266,7 +314,7 @@ public class FlatFSTest {
         flatFS.commitTrans(xid);
         flatFS.close();
 
-        System.out.println("Test 4 Passed!");
+        System.out.println("Test 5 Passed!");
     }
 
     private static void writePersistence() 
