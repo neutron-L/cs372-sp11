@@ -44,7 +44,7 @@ public class ADisk implements AutoCloseable {
   private Disk disk;
 
   private Vector<Integer> committedOrder;
-
+  private AtomicLong nextCommitSeq;
 
   private Thread writeBackThread;
 
@@ -82,7 +82,7 @@ public class ADisk implements AutoCloseable {
       shutdown = new AtomicBoolean(false);
 
       committedOrder = new Vector<>();
-
+      nextCommitSeq = new AtomicLong(1);
 
       // 格式化磁盘或者日志恢复
       if (format) {
@@ -209,8 +209,8 @@ public class ADisk implements AutoCloseable {
         writeBackCond.awaitUninterruptibly();
       }
       transaction.rememberLogSectors(logStart, logSectors);
-      // transaction.commit(nextCommitSeq.getAndIncrement());
-      transaction.commit(logStatus.getAndIncrementSeq());
+      transaction.commit(nextCommitSeq.getAndIncrement());
+      // transaction.commit(logStatus.getAndIncrementSeq());
       
 
       // 获取事务的log sector list
@@ -412,7 +412,6 @@ public class ADisk implements AutoCloseable {
     Common.debugPrintln("Write back start");
     while (true) {
       try {
-        Common.debugPrintln("here");
           lock.lock();
 
           while ((transaction = writeBackList.getNextWriteback()) == null && shutdown.get() == false) {
@@ -440,6 +439,8 @@ public class ADisk implements AutoCloseable {
           // 为了简单起见，每次都写回logstatus判断是否需要更新
           // 为避免频繁更新tail，可以采用例如批次更新的方法
           logStatus.writeBackDone(transaction.recallLogSectorStart(), transaction.recallLogSectorNSectors());
+          assert logStatus.getLatestWBSeq() + 1 == transaction.getCommittedSeq();
+          logStatus.setLatestWBSeq(transaction.getCommittedSeq());
           logStatus.writeLogStatus(logStatusBuffer);
           disk.startRequest(Disk.WRITE, 0, LOG_STATUS_SECTOR_NUMBER, logStatusBuffer);
           callbackTracker.waitForTag(0); // 等待以保证更新顺序
@@ -500,7 +501,7 @@ public class ADisk implements AutoCloseable {
     int tail = 0;
     int usedSectors = 0;
     int logSectors = 0;
-    long nextCommitSeq = 0;
+    long latestRWSeq = 0;
 
     try {
       // 读取第一个扇区获取logStatus记录的日志起点
@@ -510,7 +511,7 @@ public class ADisk implements AutoCloseable {
       callbackTracker.waitForTag(0);
       logStatus = LogStatus.parseLogStatus(buffer);
       tail = logStatus.getTail();
-      nextCommitSeq = logStatus.getNextCommitSeq();
+      latestRWSeq = logStatus.getLatestWBSeq();
       
       // 临时用一个“假”事务，主要用于构造tag
       TransID transID = new TransID(0);
@@ -534,10 +535,10 @@ public class ADisk implements AutoCloseable {
           break;
         }
 
-        if (nextCommitSeq == headerList[0].commitSeq) {
-          ++nextCommitSeq;
+        if (latestRWSeq + 1 == headerList[0].commitSeq) {
+          ++latestRWSeq;
         } else {
-          Common.debugPrintln("invalid commitSeq: ", headerList[0].commitSeq , "; expect commitseq: ",  nextCommitSeq, ", break");
+          Common.debugPrintln("invalid commitSeq: ", headerList[0].commitSeq , "; expect commitseq: ",  latestRWSeq, ", break");
           break;
         }
 
@@ -579,9 +580,9 @@ public class ADisk implements AutoCloseable {
       Common.debugPrintln("recovery trans ", transaction.getCommittedSeq(), "log start", transaction.recallLogSectorStart());
       }
 
+      Common.debugPrintln("com", usedSectors, "logs", logStatus.getUsedSectors());
       assert usedSectors >= logStatus.getUsedSectors();
-      // nextCommitSeq.set(nextCommitSeq + 1);
-      logStatus.setNextCommitSeq(nextCommitSeq);
+      nextCommitSeq.set(latestRWSeq + 1);
       logStatus.recoverySectorsInUse(tail, usedSectors);
     } catch (IOException e) {
       e.printStackTrace();
