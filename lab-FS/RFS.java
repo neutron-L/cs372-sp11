@@ -28,28 +28,39 @@ public class RFS{
   public int createFile(String filename, boolean openIt)
     throws IOException, IllegalArgumentException
   {
-    checkFilename(filename);
-
     // 创建事务
-    // 解析文件名，获取其父目录的inumber
-    // - 查看是否存在文件，非法参数
-    // 创建文件
-    // 写入父目录
+    TransID xid = flatFS.beginTrans();
+
+    int inumber = create(xid, filename, RFSInode.FILE);
+
+    if (inumber == -1) {
+      flatFS.abortTrans(xid);
+      return inumber;
+    }
+    
     // 如果openIt则关联一个文件描述符
-    return -1;
+    if (openIt) {
+      int fd = getDescriptor();
+      if (fd != -1) {
+        openFiles[fd] = new File(xid, inumber);
+      }
+    }
+    return inumber;
   }
 
   public void createDir(String dirname)
     throws IOException, IllegalArgumentException
   {
-    checkFilename(dirname);
-
     // 创建事务
-    // 解析文件名，获取其父目录的inumber
-    // - 查看是否存在目录，非法参数
-    // 创建目录
-    // 写入父目录
-    // 如果openIt则关联一个文件描述符
+    TransID xid = flatFS.beginTrans();
+
+    if (create(xid, dirname, RFSInode.FILE) == -1) {
+      flatFS.abortTrans(xid);
+    } else {
+      flatFS.commitTrans(xid);
+    }
+    
+    return;
   }
 
 
@@ -132,6 +143,9 @@ public class RFS{
     assert openFiles[0] == null;
     TransID xid = flatFS.beginTrans();
     assert iroot == flatFS.createFile(xid);
+
+    // 创建两个特殊条目.和..
+    initDir(xid, iroot, iroot);
     openFiles[iroot] = new File(xid, iroot);
   }
 
@@ -141,6 +155,177 @@ public class RFS{
     if (filename == null || filename.length() == 0 || filename.charAt(0) != '/') {
       throw new IllegalArgumentException("Bad filename");
     }
+  }
+
+  private int getDescriptor() {
+    for (int i = 0; i < openFiles.length; ++i) {
+      if (openFiles[i] == null) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  private int lookupFatherDir(TransID xid, String[] pathItems) 
+  throws IOException, IllegalArgumentException, EOFException
+  {
+    int fatherInumber = iroot;
+    for (int i = 0; i < pathItems.length - 1; ++i) {
+      fatherInumber = lookupDir(xid, fatherInumber, pathItems[i]);
+    }
+
+    return fatherInumber;
+  }
+
+  private int lookupDir(TransID xid, int fatherInumber, String filename) 
+  throws IOException, IllegalArgumentException, EOFException
+  {
+    byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
+
+    int inumber = -1;
+
+    RFSInode inode = RFSInode.parseInode(inodeBuffer);
+    int nextItemOffset = inode.getNextItemOffset();
+
+    byte[] buffer = new byte[nextItemOffset];
+    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
+    byte[] dirEntNameBuffer = new byte[DirEnt.MAX_NAME_LEN_CHAR];
+    flatFS.read(xid, fatherInumber, 0, nextItemOffset, buffer);
+
+
+    for (int i = 0; i < nextItemOffset; i += DirEnt.DIR_ENT_META_SIZE) {
+      System.arraycopy(buffer, i, dirEntBuffer, 0, DirEnt.DIR_ENT_META_SIZE);
+      DirEnt dirEnt = DirEnt.parseDirEnt(dirEntBuffer);
+      assert dirEnt.isValid();
+      flatFS.read(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), dirEntNameBuffer);
+      if (Common.byteArr2String(dirEntNameBuffer).equals(filename)) {
+        inumber = dirEnt.getInum();
+        break;
+      }
+    }
+
+    return inumber;
+  }
+
+  public int create(TransID xid, String filename, int fileType)
+    throws IOException, IllegalArgumentException
+  {
+    checkFilename(filename);
+    int inumber = -1;
+
+    byte[] fatherInodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
+
+    
+
+    // 解析文件名，获取其父目录的inumber
+    String[] pathItems = filename.split("/");
+    int fatherInumber = lookupFatherDir(xid, pathItems);
+
+    // - 查看是否存在文件，非法参数
+    if (lookupDir(xid, fatherInumber, pathItems[pathItems.length - 1]) != -1) {
+      return inumber;
+    }
+    // 创建文件
+    if ((inumber = flatFS.createFile(xid)) == -1) {
+      return inumber;
+    }
+
+   
+    // 目录需要创建两个条目
+    if (fileType == RFSInode.DIRECTORY) {
+      initDir(xid, inumber, fatherInumber);
+    } else {
+      initFile(xid, inumber);
+    }
+    
+
+
+    // 写入父目录
+    flatFS.readFileMetadata(xid, fatherInumber, fatherInodeBuffer);
+    RFSInode fatherInode = RFSInode.parseInode(fatherInodeBuffer);
+
+    DirEnt dirEnt = new DirEnt();
+
+    int nameOffset = fatherInode.getHeapOffset() - pathItems[pathItems.length - 1].length();
+    int nameLength = pathItems[pathItems.length - 1].length();
+
+    dirEnt.setNameOffset(nameOffset);
+    dirEnt.setNameLength(nameLength);
+    dirEnt.setInum(inumber);
+    dirEnt.writeDirEnt(dirEntBuffer);
+    dirEnt.setValid(true);
+
+    flatFS.write(xid, fatherInumber, nameOffset, nameLength, Common.String2byteArr(pathItems[pathItems.length - 1]));
+    flatFS.write(xid, fatherInumber,fatherInode.getNextItemOffset(), DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+
+    fatherInode.setHeapOffset(nameOffset);
+    fatherInode.setNextItemOffset(fatherInode.getNextItemOffset() + DirEnt.DIR_ENT_META_SIZE);
+
+    fatherInode.writeInode(fatherInodeBuffer);
+    flatFS.writeFileMetadata(xid, fatherInumber, fatherInodeBuffer);
+    
+
+    return inumber;
+  }
+
+  private void initDir(TransID xid, int inumber, int fatherInumber) 
+  throws IOException
+  {
+    byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
+    int offset = RFSInode.DIRECTORY_NAME_OFFSET;
+    int itemOffset = 0;
+
+    flatFS.readFileMetadata(xid, inumber, inodeBuffer);
+    RFSInode inode = RFSInode.parseInode(inodeBuffer);
+    inode.setFileType(RFSInode.DIRECTORY);
+
+
+    Common.setBuffer((byte)0, dirEntBuffer);
+    DirEnt dot = new DirEnt();
+    DirEnt doubleDot = new DirEnt();
+
+    dot.setValid(true);
+    dot.setInum(inumber);
+    dot.setNameLength(1);
+    offset -= dot.getNameLength();
+    dot.setNameOffset(offset);
+
+    dot.writeDirEnt(dirEntBuffer);
+    flatFS.write(xid, inumber, itemOffset, dirEntBuffer.length, dirEntBuffer);
+    flatFS.write(xid, inumber, offset, dot.getNameLength(), Common.String2byteArr("."));
+    itemOffset += DirEnt.DIR_ENT_META_SIZE;
+
+    doubleDot.setValid(true);
+    doubleDot.setInum(inumber);
+    doubleDot.setNameLength(2);
+    offset -= doubleDot.getNameLength();
+    doubleDot.setNameOffset(offset);
+
+    doubleDot.writeDirEnt(dirEntBuffer);
+    flatFS.write(xid, inumber, itemOffset, dirEntBuffer.length, dirEntBuffer);
+    flatFS.write(xid, inumber, offset, doubleDot.getNameLength(), Common.String2byteArr("."));
+    itemOffset += DirEnt.DIR_ENT_META_SIZE;
+
+    inode.setNextItemOffset(itemOffset);
+    inode.setHeapOffset(offset);
+    inode.writeInode(inodeBuffer);
+    flatFS.writeFileMetadata(xid, inumber, inodeBuffer);
+  }
+
+  private void initFile(TransID xid, int inumber) 
+  throws IOException
+  {
+    byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+
+    flatFS.readFileMetadata(xid, inumber, inodeBuffer);
+    RFSInode inode = RFSInode.parseInode(inodeBuffer);
+    inode.setFileType(RFSInode.DIRECTORY);
+
+    inode.writeInode(inodeBuffer);
+    flatFS.writeFileMetadata(xid, inumber, inodeBuffer);
   }
 
 }
