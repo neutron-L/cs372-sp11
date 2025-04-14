@@ -171,7 +171,7 @@ public class PTree implements AutoCloseable {
       // 读取TNode
       readTNode(xid, tnum, tnodeBuffer);
       // aDisk.readSector(xid, TNODE_SECTOR_START + tnum / (Disk.SECTOR_SIZE / TNODE_SIZE), tnodeBuffer);
-      TNode tnode = TNode.parseTNode(tnodeBuffer);
+      Tnode tnode = Tnode.parseTnode(tnodeBuffer);
 
       for (int i = 0; i < TNODE_DIRECT; ++i) {
         freeBlock(xid, tnode.data_block_direct[i]);
@@ -213,16 +213,24 @@ public class PTree implements AutoCloseable {
     }
   }
 
-  public void getMaxDataBlockId(TransID xid, int tnum)
+  public int getMaxDataBlockId(TransID xid, int tnum)
     throws IOException, IllegalArgumentException
   {
+    byte[] tnodeBuffer = new byte[TNODE_SIZE];
+    int ret = -1;
+
     try {
       lock.lock();
 
-
+      // 读取TNode
+      readTNode(xid, tnum, tnodeBuffer);
+      // aDisk.readSector(xid, TNODE_SECTOR_START + tnum / (Disk.SECTOR_SIZE / TNODE_SIZE), tnodeBuffer);
+      Tnode tnode = Tnode.parseTnode(tnodeBuffer);
+      ret = tnode.maxDataBlockId;
     } finally {
       lock.unlock();
     }
+    return ret;
   }
 
   public void readData(TransID xid, int tnum, int blockId, byte buffer[])
@@ -235,7 +243,7 @@ public class PTree implements AutoCloseable {
       // 读取TNode 
       readTNode(xid, tnum, tnodeBuffer);
       // aDisk.readSector(xid, TNODE_SECTOR_START + tnum / (Disk.SECTOR_SIZE / TNODE_SIZE), tnodeBuffer);
-      TNode tnode = TNode.parseTNode(tnodeBuffer);
+      Tnode tnode = Tnode.parseTnode(tnodeBuffer);
       int blockNum = 0;
 
       if (blockId < TNODE_DIRECT) {
@@ -291,13 +299,15 @@ public class PTree implements AutoCloseable {
     byte[] internalBuffer2 = new byte[BLOCK_SIZE_BYTES];
     int i = 0, j = 0, k = 0;
     int freeI = 0, freeJ = 0, freeK = 0;
+    boolean flag = false; // 记录是否分配了数据块
+    boolean needUpdateTnode = false; // 记录是否需要更新tnode
 
     try {
       lock.lock();
       // 读取TNode 
       readTNode(xid, tnum, tnodeBuffer);
       // aDisk.readSector(xid, TNODE_SECTOR_START + tnum / (Disk.SECTOR_SIZE / TNODE_SIZE), tnodeBuffer);
-      TNode tnode = TNode.parseTNode(tnodeBuffer);
+      Tnode tnode = Tnode.parseTnode(tnodeBuffer);
 
       if (blockId < TNODE_DIRECT) {
         if (tnode.data_block_direct[blockId] == 0) {
@@ -306,8 +316,8 @@ public class PTree implements AutoCloseable {
           }
           // Common.debugPrintln("alloc direct ", tnode.data_block_direct[blockId]);
           // write back tnode
-          tnode.writeTNode(tnodeBuffer);
-          writeTNode(xid, tnum, tnodeBuffer);
+          needUpdateTnode = true;
+          flag = true;
         }
         writeBlock(xid, tnode.data_block_direct[blockId], buffer);
       } else if (blockId < TNODE_DIRECT + POINTERS_PER_INTERNAL_NODE) {
@@ -345,14 +355,14 @@ public class PTree implements AutoCloseable {
           // Common.debugPrintln("alloc data ", j);
           setBlockNum(internalBuffer, blockId, j);
           freeJ = j;
+          flag = true;
         }
         if (freeJ != 0) {
           writeBlock(xid, i, internalBuffer);
         }
         if (freeI != 0) {
           // write back tnode
-          tnode.writeTNode(tnodeBuffer);
-          writeTNode(xid, tnum, tnodeBuffer);
+          needUpdateTnode = true;
         }
 
         writeBlock(xid, j, buffer);
@@ -414,6 +424,7 @@ public class PTree implements AutoCloseable {
           }
           setBlockNum(internalBuffer2, blockId % POINTERS_PER_INTERNAL_NODE, k);
           freeK = k;
+          flag = true;
         }
         if (freeK != 0) {
           writeBlock(xid, j, internalBuffer2);
@@ -424,8 +435,7 @@ public class PTree implements AutoCloseable {
 
         if (freeI != 0) {
           // write back tnode
-          tnode.writeTNode(tnodeBuffer);
-          writeTNode(xid, tnum, tnodeBuffer);
+          needUpdateTnode = true;
         }
         writeBlock(xid, k, buffer);
       } else {
@@ -433,6 +443,20 @@ public class PTree implements AutoCloseable {
         // 但是实现上我们不支持
         throw new IllegalArgumentException("Bad blockId");
       }
+      // 到这里写成功，更新最大数据块id
+      if (blockId > tnode.maxDataBlockId) {
+        tnode.maxDataBlockId = blockId;
+        needUpdateTnode = true;
+      }
+      if (flag) {
+        ++tnode.dataBlockCount;
+        needUpdateTnode = true;
+      }
+      if (needUpdateTnode) {
+        tnode.writeTnode(tnodeBuffer);
+        writeTNode(xid, tnum, tnodeBuffer);
+    }
+
     } finally {
       lock.unlock();
     }
@@ -448,7 +472,7 @@ public class PTree implements AutoCloseable {
 
     // 读取TNode
     readTNode(xid, tnum, tnodeBuffer);
-    TNode tnode = TNode.parseTNode(tnodeBuffer);
+    Tnode tnode = Tnode.parseTnode(tnodeBuffer);
 
     System.arraycopy(tnode.tree_meta, 0, buffer, 0, METADATA_SIZE);
   }
@@ -467,9 +491,9 @@ public class PTree implements AutoCloseable {
 
     // 读取TNode
     readTNode(xid, tnum, tnodeBuffer);
-    TNode tnode = TNode.parseTNode(tnodeBuffer);
+    Tnode tnode = Tnode.parseTnode(tnodeBuffer);
     System.arraycopy(buffer, 0, tnode.tree_meta, 0, METADATA_SIZE);
-    tnode.writeTNode(tnodeBuffer);
+    tnode.writeTnode(tnodeBuffer);
     writeTNode(xid, tnum, tnodeBuffer);
   }
 
@@ -756,7 +780,7 @@ public class PTree implements AutoCloseable {
     // 读取TNode
     for (Integer t : usedTNodes) {
       readTNode(xid, t, tnodeBuffer);
-      TNode tnode = TNode.parseTNode(tnodeBuffer);
+      Tnode tnode = Tnode.parseTnode(tnodeBuffer);
 
       for (int i = 0; i < TNODE_DIRECT; ++i) {
         if (tnode.data_block_direct[i] != 0) {
@@ -819,41 +843,45 @@ public class PTree implements AutoCloseable {
     }
 }
 
-class TNode {
+class Tnode {
   // 用0指代空指针
   public int[] data_block_direct;
   public int data_block_indirect;
   public int data_block_double_indirect;
+  public int maxDataBlockId;
+  public int dataBlockCount;
   public byte[] tree_meta;
 
-  public TNode() {
+  public Tnode() {
     data_block_direct = new int[PTree.TNODE_DIRECT];
     tree_meta = new byte[PTree.METADATA_SIZE];
   }
 
-  public static TNode parseTNode(byte[] buffer) 
+  public static Tnode parseTnode(byte[] buffer) 
   throws IllegalArgumentException
   {
-    TNode.checkBuffer(buffer);
+    Tnode.checkBuffer(buffer);
     
     ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
     byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
 
-    TNode tnode = new TNode();
+    Tnode tnode = new Tnode();
     for (int i = 0; i < PTree.TNODE_DIRECT; ++i) {
       tnode.data_block_direct[i] = byteBuffer.getInt();
     }
     tnode.data_block_indirect = byteBuffer.getInt();
     tnode.data_block_double_indirect = byteBuffer.getInt();
+    tnode.maxDataBlockId = byteBuffer.getInt();
+    tnode.dataBlockCount = byteBuffer.getInt();
     byteBuffer.get(tnode.tree_meta);
 
     return tnode;
   }
 
-  public void writeTNode(byte[] buffer) 
+  public void writeTnode(byte[] buffer) 
   throws IllegalArgumentException
   {
-    TNode.checkBuffer(buffer);
+    Tnode.checkBuffer(buffer);
 
     ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
     byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
@@ -863,6 +891,8 @@ class TNode {
     }
     byteBuffer.putInt(data_block_indirect);
     byteBuffer.putInt(data_block_double_indirect);
+    byteBuffer.putInt(maxDataBlockId);
+    byteBuffer.putInt(dataBlockCount);
     byteBuffer.put(tree_meta);
   }
 
