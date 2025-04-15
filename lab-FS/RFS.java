@@ -9,7 +9,7 @@
  */
 import java.io.IOException;
 import java.io.EOFException;
-public class RFS{
+public class RFS implements AutoCloseable {
   private FlatFS flatFS;
   private final int iroot = 0;
 
@@ -28,6 +28,7 @@ public class RFS{
   public int createFile(String filename, boolean openIt)
     throws IOException, IllegalArgumentException
   {
+
     // 创建事务
     TransID xid = flatFS.beginTrans();
 
@@ -35,7 +36,7 @@ public class RFS{
 
     if (inumber == -1) {
       flatFS.abortTrans(xid);
-      return inumber;
+      return -1;
     }
     
     // 如果openIt则关联一个文件描述符
@@ -44,8 +45,11 @@ public class RFS{
       if (fd != -1) {
         openFiles[fd] = new File(xid, inumber);
       }
+      return fd;
+    } else {
+      flatFS.commitTrans(xid);
+      return -1;
     }
-    return inumber;
   }
 
   public void createDir(String dirname)
@@ -93,17 +97,33 @@ public class RFS{
   {
     checkFilename(filename);
 
+    int fd = -1;
+    int inumber = -1;
+
     // 创建事务
+    TransID xid = flatFS.beginTrans();
+
     // 解析文件名，获取其父目录的inumber
     // - 查看是否存在文件，非法参数
+    if ((inumber = exist(xid, filename)) == -1) {
+      flatFS.abortTrans(xid);
+      throw new IllegalArgumentException("Filename not exist");
+    }
     // 关联一个文件描述符
-    return -1;
+    if ((fd = getDescriptor()) == -1) {
+      return -1;
+    }
+    openFiles[fd] = new File(xid, inumber);
+    return fd;
   }
 
 
   public void close(int fd)
     throws IOException, IllegalArgumentException
   {
+    checkFd(fd);
+    flatFS.commitTrans(openFiles[fd].xid);
+    putDescriptor(fd);
   }
 
 
@@ -128,13 +148,20 @@ public class RFS{
   public int size(int fd)
     throws IOException, IllegalArgumentException
   {
-    return -1;
+    checkFd(fd);
+    
+    byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+    flatFS.readFileMetadata(openFiles[fd].xid, openFiles[fd].inumber, inodeBuffer);
+    RFSInode inode = RFSInode.parseInode(inodeBuffer);
+
+    return inode.getFileSize();
   }
 
   public int space(int fd)
     throws IOException, IllegalArgumentException
   {
-    return -1;
+    checkFd(fd);
+    return flatFS.space(openFiles[fd].xid, openFiles[fd].inumber);
   }
 
   private void formatRFS() 
@@ -146,6 +173,7 @@ public class RFS{
 
     // 创建两个特殊条目.和..
     initDir(xid, iroot, iroot);
+    flatFS.commitTrans(xid);
     openFiles[iroot] = new File(xid, iroot);
   }
 
@@ -166,12 +194,37 @@ public class RFS{
     return -1;
   }
 
+  private void putDescriptor(int fd) {
+    checkFd(fd);
+    openFiles[fd] = null;
+  }
+
+
+  private int exist(TransID xid, String filename) 
+  throws IOException, IllegalArgumentException, EOFException
+  {
+    String[] pathItems = parseFilename(filename);
+    if (pathItems == null) {
+      throw new IllegalArgumentException("Bad filename");
+    }
+    int fatherInumber = lookupFatherDir(xid, pathItems);
+    if (fatherInumber != -1) {
+      return lookupDir(xid, fatherInumber, pathItems[pathItems.length - 1]);
+    }
+    return -1;
+  }
+
   private int lookupFatherDir(TransID xid, String[] pathItems) 
   throws IOException, IllegalArgumentException, EOFException
   {
     int fatherInumber = iroot;
     for (int i = 0; i < pathItems.length - 1; ++i) {
-      fatherInumber = lookupDir(xid, fatherInumber, pathItems[i]);
+      if (pathItems[i].isEmpty()) {
+        continue;
+      }
+      if ((fatherInumber = lookupDir(xid, fatherInumber, pathItems[i])) == -1) {
+        break;
+      }
     }
 
     return fatherInumber;
@@ -220,7 +273,11 @@ public class RFS{
     
 
     // 解析文件名，获取其父目录的inumber
-    String[] pathItems = filename.split("/");
+    String[] pathItems = parseFilename(filename);
+    if (pathItems == null) {
+      throw new IllegalArgumentException("Bad filename");
+    }
+
     int fatherInumber = lookupFatherDir(xid, pathItems);
 
     // - 查看是否存在文件，非法参数
@@ -246,16 +303,13 @@ public class RFS{
     flatFS.readFileMetadata(xid, fatherInumber, fatherInodeBuffer);
     RFSInode fatherInode = RFSInode.parseInode(fatherInodeBuffer);
 
-    DirEnt dirEnt = new DirEnt();
 
     int nameOffset = fatherInode.getHeapOffset() - pathItems[pathItems.length - 1].length();
     int nameLength = pathItems[pathItems.length - 1].length();
 
-    dirEnt.setNameOffset(nameOffset);
-    dirEnt.setNameLength(nameLength);
-    dirEnt.setInum(inumber);
+
+    DirEnt dirEnt = new DirEnt(true, inumber, nameOffset, nameLength);
     dirEnt.writeDirEnt(dirEntBuffer);
-    dirEnt.setValid(true);
 
     flatFS.write(xid, fatherInumber, nameOffset, nameLength, Common.String2byteArr(pathItems[pathItems.length - 1]));
     flatFS.write(xid, fatherInumber,fatherInode.getNextItemOffset(), DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
@@ -306,11 +360,12 @@ public class RFS{
 
     doubleDot.writeDirEnt(dirEntBuffer);
     flatFS.write(xid, inumber, itemOffset, dirEntBuffer.length, dirEntBuffer);
-    flatFS.write(xid, inumber, offset, doubleDot.getNameLength(), Common.String2byteArr("."));
+    flatFS.write(xid, inumber, offset, doubleDot.getNameLength(), Common.String2byteArr(".."));
     itemOffset += DirEnt.DIR_ENT_META_SIZE;
 
     inode.setNextItemOffset(itemOffset);
     inode.setHeapOffset(offset);
+    inode.setFileSize(PTree.MAX_FILE_SIZE);
     inode.writeInode(inodeBuffer);
     flatFS.writeFileMetadata(xid, inumber, inodeBuffer);
   }
@@ -326,6 +381,45 @@ public class RFS{
 
     inode.writeInode(inodeBuffer);
     flatFS.writeFileMetadata(xid, inumber, inodeBuffer);
+  }
+
+  private String[] parseFilename(String filename) {
+    String[] pathItems = filename.split("/");
+
+    int n = 0;
+    for (int i = 0; i < pathItems.length; ++i) {
+      if (!pathItems[i].isEmpty()) {
+        ++n;
+      }
+    }
+
+    if (n == 0) {
+      return null;
+    }
+    String[] result = new String[n];
+    int j = 0;
+    for (int i = 0; i < pathItems.length; ++i) {
+      if (!pathItems[i].isEmpty()) {
+        result[j] = pathItems[i];
+        ++j;
+      }
+    }
+
+    return result;
+  }
+
+  private void checkFd(int fd)
+  throws IllegalArgumentException
+  {
+    if (fd < 0 || fd >= Common.MAX_FD || openFiles[fd] == null) {
+      throw new IllegalArgumentException("Bad fd");
+    }
+  }
+  
+
+  @Override
+  public void close() {
+    flatFS.close();
   }
 
 }
