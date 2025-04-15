@@ -132,13 +132,18 @@ public class RFS implements AutoCloseable {
   public int read(int fd, int offset, int count, byte buffer[])
     throws IOException, IllegalArgumentException
   {
-    return -1;
+    checkFd(fd);
+    
+    return flatFS.read(openFiles[fd].xid, openFiles[fd].inumber, offset, count, buffer);
   }
 
 
   public void write(int fd, int offset, int count, byte buffer[])
     throws IOException, IllegalArgumentException
   {
+    checkFd(fd);
+    
+    flatFS.write(openFiles[fd].xid, openFiles[fd].inumber, offset, count, buffer);
   }
 
   public String[] readDir(String dirname)

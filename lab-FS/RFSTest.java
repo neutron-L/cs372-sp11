@@ -61,12 +61,12 @@ public class RFSTest {
         rfs.createDir("/Downloads/temp/temp");
         String[] files = new String[5];
         for (int i = 0; i < 5; ++i) {
-            files[i] = "/file" + i;
-            rfs.createFile(files[i], false);
+            files[i] = "file" + i;
+            rfs.createFile("/Downloads/temp/temp/" + files[i], false);
         }
         String[] result = rfs.readDir("/Downloads/temp/temp");
         assert result.length == files.length + 2;
-        assert result[0].equals(".") && result[0].equals("..");
+        assert result[0].equals(".") && result[1].equals("..");
         for (int i = 0; i < files.length; ++i) {
             assert result[i + 2].equals(files[i]);
         }
