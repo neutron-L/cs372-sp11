@@ -48,6 +48,8 @@ public class PTree implements AutoCloseable {
   public static final int TNODE_SECTOR_START = FREE_TNODE_MAP_SECTOR_START + FREE_TNODE_MAP_SECTORS;
   public static final int DATA_BLOCK_START = TNODE_SECTOR_START + TNODE_SECTORS;
 
+  public static final int MAX_FILE_SIZE = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE;
+
   // 数据成员
   private ADisk aDisk;
   private SimpleLock lock;
@@ -233,6 +235,26 @@ public class PTree implements AutoCloseable {
     return ret;
   }
 
+
+  public int getDataBlockCount(TransID xid, int tnum)
+    throws IOException, IllegalArgumentException
+  {
+    byte[] tnodeBuffer = new byte[TNODE_SIZE];
+    int ret = -1;
+
+    try {
+      lock.lock();
+
+      // 读取TNode
+      readTNode(xid, tnum, tnodeBuffer);
+      // aDisk.readSector(xid, TNODE_SECTOR_START + tnum / (Disk.SECTOR_SIZE / TNODE_SIZE), tnodeBuffer);
+      Tnode tnode = Tnode.parseTnode(tnodeBuffer);
+      ret = tnode.dataBlockCount;
+    } finally {
+      lock.unlock();
+    }
+    return ret;
+  }
   public void readData(TransID xid, int tnum, int blockId, byte buffer[])
     throws IOException, IllegalArgumentException
   {
@@ -301,6 +323,7 @@ public class PTree implements AutoCloseable {
     int freeI = 0, freeJ = 0, freeK = 0;
     boolean flag = false; // 记录是否分配了数据块
     boolean needUpdateTnode = false; // 记录是否需要更新tnode
+    int old_blockId = blockId;
 
     try {
       lock.lock();
@@ -444,8 +467,9 @@ public class PTree implements AutoCloseable {
         throw new IllegalArgumentException("Bad blockId");
       }
       // 到这里写成功，更新最大数据块id
-      if (blockId > tnode.maxDataBlockId) {
-        tnode.maxDataBlockId = blockId;
+      // Common.debugPrintln(blockId, tnode.maxDataBlockId);
+      if (old_blockId > tnode.maxDataBlockId) {
+        tnode.maxDataBlockId = old_blockId;
         needUpdateTnode = true;
       }
       if (flag) {
