@@ -21,19 +21,56 @@ public class RFSTest {
     {
         System.out.println("Test 1: test file create & open & close");
         RFS rfs = new RFS(true);
+        int fd = -1;
 
-        int fd1 = rfs.createFile("/a.txt", false);
-        assert fd1 == -1;
-        Common.debugPrintln("here");
+        fd = rfs.createFile("/a.txt", false);
+        assert fd == -1;
 
-        fd1 = rfs.open("/a.txt");
-        assert fd1 != -1 && rfs.space(fd1) == 0;
-        rfs.close(fd1);
+        fd = rfs.open("/a.txt");
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
 
-        int fd2 = rfs.createFile("/b.txt", true);
-        assert fd2 != -1 && rfs.space(fd2) == 0;
+        fd = rfs.createFile("/b.txt", true);
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
 
-        rfs.close(fd2);
+        assert -1 == rfs.createFile("/Downloads/c.txt", true);
+
+        rfs.createDir("/Downloads");
+
+        fd = rfs.createFile("/Downloads/c.txt", true);
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
+
+        fd = rfs.createFile("/Downloads/d.txt", true);
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
+
+        fd = rfs.createFile("/Downloads/e.txt", false);
+        assert fd == -1;
+
+        assert -1 == rfs.createFile("/Downloads/temp/c.txt", true);
+
+        rfs.createDir("/Downloads/temp");
+
+        fd = rfs.createFile("/Downloads/temp/c.txt", true);
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
+
+        // 在指定目录下创建一系列子目录并读取子目录名字
+        rfs.createDir("/Downloads/temp/temp");
+        String[] files = new String[5];
+        for (int i = 0; i < 5; ++i) {
+            files[i] = "/file" + i;
+            rfs.createFile(files[i], false);
+        }
+        String[] result = rfs.readDir("/Downloads/temp/temp");
+        assert result.length == files.length + 2;
+        assert result[0].equals(".") && result[0].equals("..");
+        for (int i = 0; i < files.length; ++i) {
+            assert result[i + 2].equals(files[i]);
+        }
+        
         rfs.close();
         System.out.println("Test 1 Passed!");
     }
