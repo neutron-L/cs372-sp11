@@ -30,6 +30,17 @@ public class DirEnt {
   // Feel free to modify DirEnt as desired
   //
 
+  public DirEnt() {
+
+  }
+
+  public DirEnt(boolean valid, int inum, int nameOffset, int nameLength) {
+    this.valid = valid;
+    this.inum = inum;
+    this.nameOffset = nameOffset;
+    this.nameLength = nameLength;
+  }
+
   // valid 字段的 get 和 set 方法
   public boolean isValid() {
       return valid;
