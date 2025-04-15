@@ -52,8 +52,15 @@ public class FlatFS implements AutoCloseable {
   public int createFile(TransID xid)
     throws IOException, IllegalArgumentException
   {
+    int inumber = -1;
     // 新创建的file的所有数据都被置零，不需要额外处理
-    return ptree.createTree(xid);
+    try {
+      inumber = ptree.createTree(xid);
+    } catch (ResourceException e) {
+      assert inumber == -1;
+    }
+
+    return inumber;
   }
 
   public void deleteFile(TransID xid, int inumber)
@@ -156,6 +163,12 @@ public class FlatFS implements AutoCloseable {
     throws IOException, IllegalArgumentException
   {
     ptree.writeTreeMetadata(xid, inumber, buffer);
+  }
+
+  public int space(TransID xid, int inumber)
+    throws IOException, IllegalArgumentException
+  {
+    return ptree.getDataBlockCount(xid, inumber);
   }
 
   public int getParam(int param)
