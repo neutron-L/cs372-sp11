@@ -28,7 +28,6 @@ public class RFS implements AutoCloseable {
   public int createFile(String filename, boolean openIt)
     throws IOException, IllegalArgumentException
   {
-
     // 创建事务
     TransID xid = flatFS.beginTrans();
 
@@ -58,7 +57,7 @@ public class RFS implements AutoCloseable {
     // 创建事务
     TransID xid = flatFS.beginTrans();
 
-    if (create(xid, dirname, RFSInode.FILE) == -1) {
+    if (create(xid, dirname, RFSInode.DIRECTORY) == -1) {
       flatFS.abortTrans(xid);
     } else {
       flatFS.commitTrans(xid);
@@ -279,6 +278,10 @@ public class RFS implements AutoCloseable {
     }
 
     int fatherInumber = lookupFatherDir(xid, pathItems);
+
+    if (fatherInumber == -1) {
+      return -1;
+    }
 
     // - 查看是否存在文件，非法参数
     if (lookupDir(xid, fatherInumber, pathItems[pathItems.length - 1]) != -1) {
