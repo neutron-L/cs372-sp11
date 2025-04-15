@@ -8,7 +8,13 @@
  * (C) 2007 Mike Dahlin
  *
  */
-public class DirEnt{
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
+public class DirEnt {
+  // 每个目录项占据32个字节空间
+  public final static int DIR_ENT_META_SIZE = 16;
   public final static int MAX_NAME_LEN_CHAR = 16;
   private boolean valid;
   private int inum;
@@ -20,12 +26,83 @@ public class DirEnt{
    */
   private int nameOffset;
   private int nameLength;
-  /* 对于目录，记录开始存储文件名的偏移（初始化为文件偏移最大值）
-   * 对于文件，为0，可以通过该字段判断文件类型
-   * 对于特殊条目.和..，使用1和2表示
-   */
-  private int listOffset;
   //
   // Feel free to modify DirEnt as desired
   //
-}
+
+  // valid 字段的 get 和 set 方法
+  public boolean isValid() {
+      return valid;
+  }
+
+  public void setValid(boolean valid) {
+      this.valid = valid;
+  }
+
+  // inum 字段的 get 和 set 方法
+  public int getInum() {
+      return inum;
+  }
+
+  public void setInum(int inum) {
+      this.inum = inum;
+  }
+
+  // nameOffset 字段的 get 和 set 方法
+  public int getNameOffset() {
+      return nameOffset;
+  }
+
+  public void setNameOffset(int nameOffset) {
+      this.nameOffset = nameOffset;
+  }
+
+  // nameLength 字段的 get 和 set 方法
+  public int getNameLength() {
+      return nameLength;
+  }
+
+  public void setNameLength(int nameLength) {
+      this.nameLength = nameLength;
+  }
+
+  public static DirEnt parseDirEnt(byte[] buffer) 
+  throws IllegalArgumentException
+  {
+    checkBuffer(buffer);
+    
+    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+    byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
+
+    DirEnt dirEnt = new DirEnt();
+    dirEnt.valid = byteBuffer.getInt() == 1;
+    dirEnt.inum = byteBuffer.getInt();
+    dirEnt.nameOffset = byteBuffer.getInt();
+    dirEnt.nameLength = byteBuffer.getInt();
+
+    return dirEnt;
+  }
+
+
+  public void writeDirEnt(byte[] buffer) 
+  throws IllegalArgumentException
+  {
+    checkBuffer(buffer);
+
+    ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
+    byteBuffer.order(ByteOrder.BIG_ENDIAN); // 与序列化时一致
+
+    byteBuffer.putInt(valid ? 1 : 0);
+    byteBuffer.putInt(inum);
+    byteBuffer.putInt(nameOffset);
+    byteBuffer.putInt(nameLength);
+  }
+
+  protected static void checkBuffer(byte[] buffer) 
+  throws IllegalArgumentException
+  {
+    if (buffer == null || buffer.length != DIR_ENT_META_SIZE) {
+      throw new IllegalArgumentException("Bad Buffer");
+    }
+  }
+}    
