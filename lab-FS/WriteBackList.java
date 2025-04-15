@@ -12,7 +12,6 @@
 
  
 import java.util.LinkedList;
-import java.util.concurrent.locks.Condition;
 
 
 // 必须是单个消费者
