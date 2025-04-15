@@ -76,16 +76,21 @@ public class Common {
     if (bytes == null) {
       return null;
     }
+    int endIndex = 0;
+    // 查找空字符的位置
+    for (; endIndex < bytes.length; endIndex++) {
+        if (bytes[endIndex] == '\0') {
+            break;
+        }
+    }
     String str = null;
-    
     try {
-        // 指定 UTF-8 字符集将字节数组转换为字符串
-        str = new String(bytes, "UTF-8"); 
+        // 截取空字符之前的字节数组部分并转换为字符串
+        str = new String(bytes, 0, endIndex, "UTF-8");
     } catch (UnsupportedEncodingException e) {
         e.printStackTrace();
         return null;
-    } 
-
+    }
     return str;
   }
 
