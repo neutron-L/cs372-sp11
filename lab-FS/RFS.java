@@ -242,7 +242,7 @@ public class RFS implements AutoCloseable {
   {
     String[] pathItems = parseFilename(filename);
     if (pathItems == null) {
-      throw new IllegalArgumentException("Bad filename");
+      return iroot;
     }
     int fatherInumber = lookupFatherDir(xid, pathItems);
     if (fatherInumber != -1) {
@@ -260,7 +260,6 @@ public class RFS implements AutoCloseable {
         continue;
       }
       if ((fatherInumber = lookupDir(xid, fatherInumber, pathItems[i], RFSInode.DIRECTORY)) == -1) {
-        Common.debugPrintln(pathItems[i]);
         break;
       }
     }
