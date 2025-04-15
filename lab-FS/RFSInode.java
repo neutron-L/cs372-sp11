@@ -4,8 +4,9 @@ import java.nio.ByteOrder;
 public class RFSInode extends Inode {
   // 用两个静态常量指代文件类型
   // 为了简单性，也可使用枚举类型
-  public static final int FILE = 0;
-  public static final int DIRECTORY = 1;
+  public static final int FILE = 1;
+  public static final int DIRECTORY = 2;
+  public static final int ANY = 4; // 这是用于查找的，不对文件类型做要求
   public static final int DIRECTORY_NAME_OFFSET = PTree.MAX_FILE_SIZE;
 
   private int fileSize;
