@@ -83,6 +83,7 @@ public class RFS implements AutoCloseable {
     
     int inumber = -1;
     int fatherInumber = -1;
+    DirEnt dirEnt = null;
 
     // 创建事务
     TransID xid = flatFS.beginTrans();
@@ -99,16 +100,18 @@ public class RFS implements AutoCloseable {
 
     byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
     byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
-    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
+    
+    flatFS.readFileMetadata(xid, inumber, inodeBuffer);
     RFSInode inode = RFSInode.parseInode(inodeBuffer);
-    DirEnt dirEnt = null;
-
 
     // 非空目录不能删除
     if (inode.getFileType() == RFSInode.DIRECTORY && inode.getNextItemOffset() != 2 * DirEnt.DIR_ENT_META_SIZE) {
       flatFS.abortTrans(xid);
       return;
     } 
+
+    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
+    inode = RFSInode.parseInode(inodeBuffer);
     
     int i;
     for (i = 0; i < inode.getNextItemOffset(); i += DirEnt.DIR_ENT_META_SIZE) {
@@ -138,7 +141,7 @@ public class RFS implements AutoCloseable {
     }
     inode.setNextItemOffset(inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE);
     inode.writeInode(inodeBuffer);
-    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
+    flatFS.writeFileMetadata(xid, fatherInumber, inodeBuffer);
 
     flatFS.commitTrans(xid);
     
@@ -173,7 +176,7 @@ public class RFS implements AutoCloseable {
     // - 查看是否存在文件，非法参数
     if ((inumber = exist(xid, filename, RFSInode.FILE)) == -1) {
       flatFS.abortTrans(xid);
-      throw new IllegalArgumentException("Filename not exist");
+      return fd;
     }
     // 关联一个文件描述符
     if ((fd = getDescriptor()) == -1) {
@@ -224,7 +227,7 @@ public class RFS implements AutoCloseable {
     // - 查看是否存在文件，非法参数
     if ((inumber = exist(xid, dirname, RFSInode.DIRECTORY)) == -1) {
       flatFS.abortTrans(xid);
-      throw new IllegalArgumentException("Dirname not exist");
+      return null;
     }
 
     byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
@@ -357,10 +360,9 @@ public class RFS implements AutoCloseable {
         inumber = dirEnt.getInum();
         flatFS.readFileMetadata(xid, inumber, inodeBuffer);
         inode = RFSInode.parseInode(inodeBuffer);
-        if (inode.getFileType() != expectedFileType && expectedFileType != RFSInode.ANY) {
-          continue;
+        if (inode.getFileType() == expectedFileType || expectedFileType == RFSInode.ANY) {
+          break;
         }
-        break;
       }
     }
 
@@ -487,7 +489,7 @@ public class RFS implements AutoCloseable {
 
     flatFS.readFileMetadata(xid, inumber, inodeBuffer);
     RFSInode inode = RFSInode.parseInode(inodeBuffer);
-    inode.setFileType(RFSInode.DIRECTORY);
+    inode.setFileType(RFSInode.FILE);
 
     inode.writeInode(inodeBuffer);
     flatFS.writeFileMetadata(xid, inumber, inodeBuffer);
