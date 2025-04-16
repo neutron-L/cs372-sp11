@@ -75,10 +75,74 @@ public class RFS implements AutoCloseable {
   {
     checkFilename(filename);
 
+    String[] pathItems = parseFilename(filename);
+    // 不支持删除根目录
+    if (pathItems == null) {
+      return;
+    }
+    
+    int inumber = -1;
+    int fatherInumber = -1;
+
     // 创建事务
+    TransID xid = flatFS.beginTrans();
+
     // 解析文件名，获取其父目录的inumber
-    // - 查看是否存在目录，非法参数
-    // 修改父目录
+    if ((fatherInumber = lookupFatherDir(xid, pathItems)) == -1) {
+      return;
+    }
+
+    // - 查看是否存在文件
+    if ((inumber = lookupDir(xid, fatherInumber, pathItems[pathItems.length - 1], RFSInode.ANY)) == -1) {
+      return;
+    }
+
+    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
+    byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
+    RFSInode inode = RFSInode.parseInode(inodeBuffer);
+    DirEnt dirEnt = null;
+
+
+    // 非空目录不能删除
+    if (inode.getFileType() == RFSInode.DIRECTORY && inode.getNextItemOffset() != 2 * DirEnt.DIR_ENT_META_SIZE) {
+      flatFS.abortTrans(xid);
+      return;
+    } 
+    
+    int i;
+    for (i = 0; i < inode.getNextItemOffset(); i += DirEnt.DIR_ENT_META_SIZE) {
+      flatFS.read(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+      dirEnt = DirEnt.parseDirEnt(dirEntBuffer);
+      assert dirEnt.isValid();
+      byte[] dirEntNameBuffer = new byte[dirEnt.getNameLength()];
+      flatFS.read(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), dirEntNameBuffer);
+      if (Common.byteArr2String(dirEntNameBuffer).equals(pathItems[pathItems.length - 1])) {
+        break;
+      }
+    }
+
+    assert i != inode.getNextItemOffset();
+    flatFS.deleteFile(xid, inumber);
+
+    // 更新父目录
+    if (i < inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE) {
+      flatFS.read(xid, fatherInumber, inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+      flatFS.write(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, inodeBuffer);
+    }
+    if (inode.getHeapOffset() < dirEnt.getNameOffset()) {
+      byte[] zeroBuffer = new byte[dirEnt.getNameLength()];
+      flatFS.write(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), zeroBuffer);
+    } else {
+      inode.setHeapOffset(inode.getHeapOffset() + dirEnt.getNameLength());
+    }
+    inode.setNextItemOffset(inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE);
+    inode.writeInode(inodeBuffer);
+    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
+
+    flatFS.commitTrans(xid);
+    
+    return;
   }
 
   public void rename(String oldName, String newName)
@@ -293,7 +357,7 @@ public class RFS implements AutoCloseable {
         inumber = dirEnt.getInum();
         flatFS.readFileMetadata(xid, inumber, inodeBuffer);
         inode = RFSInode.parseInode(inodeBuffer);
-        if (inode.getFileType() != expectedFileType) {
+        if (inode.getFileType() != expectedFileType && expectedFileType != RFSInode.ANY) {
           continue;
         }
         break;
@@ -326,7 +390,8 @@ public class RFS implements AutoCloseable {
     }
 
     // - 查看是否存在文件，非法参数
-    if (lookupDir(xid, fatherInumber, pathItems[pathItems.length - 1], fileType) != -1) {
+    // 用ANY，则该目录下如果存在同名目录或文件直接失败
+    if (lookupDir(xid, fatherInumber, pathItems[pathItems.length - 1], RFSInode.ANY) != -1) {
       return inumber;
     }
     // 创建文件
