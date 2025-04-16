@@ -131,7 +131,7 @@ public class RFS implements AutoCloseable {
     // 更新父目录
     if (i < inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE) {
       flatFS.read(xid, fatherInumber, inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
-      flatFS.write(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, inodeBuffer);
+      flatFS.write(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
     }
     if (inode.getHeapOffset() < dirEnt.getNameOffset()) {
       byte[] zeroBuffer = new byte[dirEnt.getNameLength()];
@@ -240,6 +240,7 @@ public class RFS implements AutoCloseable {
       flatFS.read(xid, inumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
       DirEnt dirEnt = DirEnt.parseDirEnt(dirEntBuffer);
       assert dirEnt.isValid();
+
       byte[] dirEntNameBuffer = new byte[dirEnt.getNameLength()];
       flatFS.read(xid, inumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), dirEntNameBuffer);
       result[i / DirEnt.DIR_ENT_META_SIZE] = Common.byteArr2String(dirEntNameBuffer);
