@@ -90,11 +90,14 @@ public class RFS implements AutoCloseable {
 
     // 解析文件名，获取其父目录的inumber
     if ((fatherInumber = lookupFatherDir(xid, pathItems)) == -1) {
+      flatFS.abortTrans(xid);
       return;
     }
 
     // - 查看是否存在文件
+      flatFS.abortTrans(xid);
     if ((inumber = lookupDir(xid, fatherInumber, pathItems[pathItems.length - 1], RFSInode.ANY)) == -1) {
+      flatFS.abortTrans(xid);
       return;
     }
 
@@ -154,10 +157,27 @@ public class RFS implements AutoCloseable {
     checkFilename(oldName);
     checkFilename(newName);
 
+    int fatherInumber = -1;
+    int stepfatherInumber = -1;
+    int inumber = -1;
+
+    String[] oldPathItems = parseFilename(oldName);
+    String[] newPathItems = parseFilename(newName);
+    
+
     // 创建事务
-    // 解析文件名，获取其父目录的inumber
-    // - 查看是否存在文件，非法参数
-    // 更新父目录
+    TransID xid = flatFS.beginTrans();
+
+    // 解析新旧文件名，获取其父目录的inumber
+    if ((fatherInumber = lookupFatherDir(xid, oldPathItems)) == -1 || (stepfatherInumber = lookupFatherDir(xid, newPathItems)) == -1 ) {
+      return;
+    }
+
+    // - 查看是否存在文件
+    if ((inumber = lookupDir(xid, fatherInumber, oldPathItems[oldPathItems.length - 1], RFSInode.ANY)) == -1) {
+      return;
+    }
+
   }
 
 
