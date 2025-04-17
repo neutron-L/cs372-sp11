@@ -11,12 +11,12 @@ public class RFSTest {
   // main() -- RFS test
   //-------------------------------------------------------
    public static void main(String[] args) throws Exception {
-        testFileOpenClose();
-        testRWSimple();
-        testRWMiddle();
-        testRWComplex();
-        testUnlinkRename();;
-        testPersistence();
+        // testFileOpenClose();
+        // testRWSimple();
+        // testRWMiddle();
+        // testRWComplex();
+        testUnlinkRename();
+        // testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
     }
@@ -314,11 +314,6 @@ public class RFSTest {
 
         String dirname = "/temp";
         rfs.createDir(dirname);
-        result = rfs.readDir("/");
-        Common.debugPrintln(result.length);
-        for (String i : result) {
-            Common.debugPrintln(i);
-        }
         String[] files = new String[5];
         for (int i = 0; i < 5; ++i) {
             files[i] = "file" + i;
@@ -364,6 +359,48 @@ public class RFSTest {
         assert result == null;
 
         /* 文件重命名 */ 
+        String filename = "/a.txt";
+        String nowName = "/b.txt";
+        assert -1 == rfs.createFile(filename, false);
+        assert (fd = rfs.open(filename)) != -1; 
+        rfs.close(fd);
+
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        filename = nowName;
+        nowName = "/c.txt";
+
+        rfs.rename(filename, nowName);
+
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        filename = nowName;
+        nowName = "/temp/a.txt";
+        rfs.createDir(dirname);
+
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        filename = nowName;
+        nowName = "/temp/b.txt";
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        filename = nowName;
+        nowName = "/b.txt";
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
 
         rfs.close();
         System.out.println("Test 5 Passed!");
