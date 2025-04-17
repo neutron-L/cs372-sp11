@@ -8,6 +8,7 @@
  *
  */
 import java.io.IOException;
+import java.util.Stack;
 import java.io.EOFException;
 public class RFS implements AutoCloseable {
   private FlatFS flatFS;
@@ -591,34 +592,50 @@ public class RFS implements AutoCloseable {
     flatFS.writeFileMetadata(xid, fatherInumber, fatherInodeBuffer);
   }
 
-  private String[] parseFilename(String filename) 
-  throws IllegalArgumentException
-  {
+ private String[] parseFilename(String filename) 
+ throws IllegalArgumentException 
+ {
+    if (filename == null) {
+        throw new IllegalArgumentException("Filename cannot be null");
+    }
+
+    // 使用 '/' 分割路径
     String[] pathItems = filename.split("/");
 
-    int n = 0;
-    for (int i = 0; i < pathItems.length; ++i) {
-      if (!pathItems[i].isEmpty()) {
-        ++n;
-      } else if (pathItems[i].length() > Common.FS_MAX_NAME) {
-        throw new IllegalArgumentException("Bad filename");
-      }
+    Stack<String> stack = new Stack<>();
+
+    for (String item : pathItems) {
+        if (item.isEmpty() || item.equals(".")) {
+            // 忽略空字符串和 "."
+            continue;
+        } else if (item.equals("..")) {
+            // 处理 ".."，如果栈不为空则弹出
+            if (!stack.isEmpty()) {
+                stack.pop();
+            } else {
+                // 如果遇到 ".." 时栈已经为空，可以选择保留 ".." 或忽略
+                // 这里选择将其压入栈中以保留路径信息
+                stack.push(item);
+            }
+        } else {
+            // 添加普通目录或文件名到栈中
+            stack.push(item);
+        }
     }
 
-    if (n == 0) {
-      return null;
+    // 如果最终栈为空，返回 null
+    if (stack.isEmpty()) {
+        return null;
     }
-    String[] result = new String[n];
-    int j = 0;
-    for (int i = 0; i < pathItems.length; ++i) {
-      if (!pathItems[i].isEmpty()) {
-        result[j] = pathItems[i];
-        ++j;
-      }
+
+    // 将栈中的元素转换为数组
+    String[] result = new String[stack.size()];
+    for (int i = stack.size() - 1, j = 0; i >= 0; i--, j++) {
+        result[j] = stack.pop();
     }
 
     return result;
-  }
+}
 
   private void checkFd(int fd)
   throws IllegalArgumentException
