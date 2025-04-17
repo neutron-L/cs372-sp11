@@ -87,7 +87,7 @@ public class FlatFS implements AutoCloseable {
     ptree.readTreeMetadata(xid, inumber, inodeBuffer);
     FlatFSInode inode = FlatFSInode.parseInode(inodeBuffer);
 
-    if (offset >= inode.getFileSize()) {
+    if (offset > inode.getFileSize()) {
       throw new EOFException("Bad offset");
     }
 

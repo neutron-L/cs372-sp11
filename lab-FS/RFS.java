@@ -33,11 +33,9 @@ public class RFS implements AutoCloseable {
     int inumber = create(xid, filename, RFSInode.FILE);
 
     if (inumber == -1) {
-      Common.debugPrintln("create fail", filename);
       flatFS.abortTrans(xid);
       return -1;
     }
-    Common.debugPrintln("create succ", filename);
     
     // 如果openIt则关联一个文件描述符
     if (openIt) {
@@ -59,10 +57,8 @@ public class RFS implements AutoCloseable {
     TransID xid = flatFS.beginTrans();
 
     if (create(xid, dirname, RFSInode.DIRECTORY) == -1) {
-      Common.debugPrintln("fail", dirname);
       flatFS.abortTrans(xid);
     } else {
-      Common.debugPrintln("succ", dirname);
       flatFS.commitTrans(xid);
     }
     
@@ -83,7 +79,6 @@ public class RFS implements AutoCloseable {
     
     int inumber = -1;
     int fatherInumber = -1;
-    DirEnt dirEnt = null;
 
     // 创建事务
     TransID xid = flatFS.beginTrans();
@@ -95,13 +90,11 @@ public class RFS implements AutoCloseable {
     }
 
     // - 查看是否存在文件
-      flatFS.abortTrans(xid);
     if ((inumber = lookupDir(xid, fatherInumber, pathItems[pathItems.length - 1], RFSInode.ANY)) == -1) {
       flatFS.abortTrans(xid);
       return;
     }
 
-    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
     byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
     
     flatFS.readFileMetadata(xid, inumber, inodeBuffer);
@@ -113,39 +106,9 @@ public class RFS implements AutoCloseable {
       return;
     } 
 
-    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
-    inode = RFSInode.parseInode(inodeBuffer);
-    
-    int i;
-    for (i = 0; i < inode.getNextItemOffset(); i += DirEnt.DIR_ENT_META_SIZE) {
-      flatFS.read(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
-      dirEnt = DirEnt.parseDirEnt(dirEntBuffer);
-      assert dirEnt.isValid();
-      byte[] dirEntNameBuffer = new byte[dirEnt.getNameLength()];
-      flatFS.read(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), dirEntNameBuffer);
-      if (Common.byteArr2String(dirEntNameBuffer).equals(pathItems[pathItems.length - 1])) {
-        break;
-      }
-    }
-
-    assert i != inode.getNextItemOffset();
-    flatFS.deleteFile(xid, inumber);
-
     // 更新父目录
-    if (i < inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE) {
-      flatFS.read(xid, fatherInumber, inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
-      flatFS.write(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
-    }
-    if (inode.getHeapOffset() < dirEnt.getNameOffset()) {
-      byte[] zeroBuffer = new byte[dirEnt.getNameLength()];
-      flatFS.write(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), zeroBuffer);
-    } else {
-      inode.setHeapOffset(inode.getHeapOffset() + dirEnt.getNameLength());
-    }
-    inode.setNextItemOffset(inode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE);
-    inode.writeInode(inodeBuffer);
-    flatFS.writeFileMetadata(xid, fatherInumber, inodeBuffer);
-
+    assert inumber == clearDirEnt(xid, fatherInumber, pathItems[pathItems.length - 1]);
+    flatFS.deleteFile(xid, inumber);
     flatFS.commitTrans(xid);
     
     return;
@@ -163,19 +126,89 @@ public class RFS implements AutoCloseable {
 
     String[] oldPathItems = parseFilename(oldName);
     String[] newPathItems = parseFilename(newName);
-    
 
+    String formerName = oldPathItems[oldPathItems.length - 1];
+    String nowName = newPathItems[newPathItems.length - 1];
+
+    byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
+
+    RFSInode inode = null;
+  
     // 创建事务
     TransID xid = flatFS.beginTrans();
 
     // 解析新旧文件名，获取其父目录的inumber
     if ((fatherInumber = lookupFatherDir(xid, oldPathItems)) == -1 || (stepfatherInumber = lookupFatherDir(xid, newPathItems)) == -1 ) {
+      flatFS.abortTrans(xid);
       return;
     }
 
-    // - 查看是否存在文件
-    if ((inumber = lookupDir(xid, fatherInumber, oldPathItems[oldPathItems.length - 1], RFSInode.ANY)) == -1) {
+    // - 查看目标文件是否存在
+    if ((inumber = lookupDir(xid, stepfatherInumber, nowName, RFSInode.FILE)) == -1) {
+      flatFS.abortTrans(xid);
       return;
+    }
+
+    DirEnt dirEnt = null;
+    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
+    inode = RFSInode.parseInode(inodeBuffer);
+    
+    int i;
+    for (i = 0; i < inode.getNextItemOffset(); i += DirEnt.DIR_ENT_META_SIZE) {
+      flatFS.read(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+      dirEnt = DirEnt.parseDirEnt(dirEntBuffer);
+      assert dirEnt.isValid();
+      byte[] dirEntNameBuffer = new byte[dirEnt.getNameLength()];
+      flatFS.read(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), dirEntNameBuffer);
+      if (Common.byteArr2String(dirEntNameBuffer).equals(formerName)) {
+        break;
+      }
+    }
+    // - 查看源文件是否存在
+    if (i == inode.getNextItemOffset()) {
+      return;
+    }
+
+
+    // 没有移动到其他目录
+    int nameOffset = 0;
+    if (fatherInumber == stepfatherInumber) {
+      // 原地修改文件名
+      // 是否可以原地修改
+      boolean flag = false;
+      if (inode.getHeapOffset() + nowName.length() <= PTree.MAX_FILE_SIZE) {
+        assert dirEnt.getNameLength() == formerName.length();
+        byte[] nameBuffer = new byte[Math.max(formerName.length(), nowName.length())];
+        Common.setBuffer((byte)0, nameBuffer);
+        flatFS.write(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), nameBuffer);
+        flatFS.read(xid, fatherInumber, dirEnt.getNameOffset(), nowName.length(), nameBuffer);
+
+        int j = 0;
+        while (j < nowName.length() && nameBuffer[j] == (byte)0) {
+          ++j;
+        }
+        flag = j == nowName.length();
+      }
+
+
+      if (flag) {
+        nameOffset = i;
+      } else {
+        inode.setHeapOffset(inode.getHeapOffset() - nowName.length());
+        nameOffset = inode.getHeapOffset();
+      }
+      dirEnt.setNameOffset(nameOffset);
+      dirEnt.setNameLength(nowName.length());
+      flatFS.write(xid, fatherInumber, dirEnt.getNameOffset(), nowName.length(), Common.String2byteArr(nowName));
+      dirEnt.writeDirEnt(dirEntBuffer);
+      flatFS.write(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+    } else {
+      // 删除目录项
+      assert inumber == clearDirEnt(xid, fatherInumber, formerName);
+
+      // 在新的目录下添加目录项
+      addDirEnt(xid, stepfatherInumber, nowName, inumber);
     }
 
   }
@@ -375,8 +408,8 @@ public class RFS implements AutoCloseable {
       Common.setBuffer((byte)0, dirEntNameBuffer);
       System.arraycopy(buffer, i, dirEntBuffer, 0, DirEnt.DIR_ENT_META_SIZE);
       DirEnt dirEnt = DirEnt.parseDirEnt(dirEntBuffer);
-      assert dirEnt.isValid();
       flatFS.read(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), dirEntNameBuffer);
+
       if (Common.byteArr2String(dirEntNameBuffer).equals(filename)) {
         inumber = dirEnt.getInum();
         flatFS.readFileMetadata(xid, inumber, inodeBuffer);
@@ -385,6 +418,8 @@ public class RFS implements AutoCloseable {
           break;
         }
       }
+      assert dirEnt.isValid();
+
     }
 
     return inumber;
@@ -395,10 +430,6 @@ public class RFS implements AutoCloseable {
   {
     checkFilename(filename);
     int inumber = -1;
-
-    byte[] fatherInodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
-    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
-
 
     // 解析文件名，获取其父目录的inumber
     String[] pathItems = parseFilename(filename);
@@ -430,30 +461,9 @@ public class RFS implements AutoCloseable {
       initFile(xid, inumber);
     }
     
-
-
     // 写入父目录
-    flatFS.readFileMetadata(xid, fatherInumber, fatherInodeBuffer);
-    RFSInode fatherInode = RFSInode.parseInode(fatherInodeBuffer);
-
-
-    int nameOffset = fatherInode.getHeapOffset() - pathItems[pathItems.length - 1].length();
-    int nameLength = pathItems[pathItems.length - 1].length();
-
-
-    DirEnt dirEnt = new DirEnt(true, inumber, nameOffset, nameLength);
-    dirEnt.writeDirEnt(dirEntBuffer);
-
-    flatFS.write(xid, fatherInumber, nameOffset, nameLength, Common.String2byteArr(pathItems[pathItems.length - 1]));
-    flatFS.write(xid, fatherInumber,fatherInode.getNextItemOffset(), DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
-
-    fatherInode.setHeapOffset(nameOffset);
-    fatherInode.setNextItemOffset(fatherInode.getNextItemOffset() + DirEnt.DIR_ENT_META_SIZE);
-
-    fatherInode.writeInode(fatherInodeBuffer);
-    flatFS.writeFileMetadata(xid, fatherInumber, fatherInodeBuffer);
+    addDirEnt(xid, fatherInumber, pathItems[pathItems.length - 1], inumber);
     
-
     return inumber;
   }
 
@@ -486,7 +496,7 @@ public class RFS implements AutoCloseable {
     itemOffset += DirEnt.DIR_ENT_META_SIZE;
 
     doubleDot.setValid(true);
-    doubleDot.setInum(inumber);
+    doubleDot.setInum(fatherInumber);
     doubleDot.setNameLength(2);
     offset -= doubleDot.getNameLength();
     doubleDot.setNameOffset(offset);
@@ -516,13 +526,95 @@ public class RFS implements AutoCloseable {
     flatFS.writeFileMetadata(xid, inumber, inodeBuffer);
   }
 
-  private String[] parseFilename(String filename) {
+  private int clearDirEnt(TransID xid, int fatherInumber, String filename)
+  throws IOException, IllegalArgumentException
+  {
+    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
+    byte[] inodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+    int inumber = -1;
+    RFSInode fatherInode = null;
+    DirEnt dirEnt = null;
+
+    flatFS.readFileMetadata(xid, fatherInumber, inodeBuffer);
+    fatherInode = RFSInode.parseInode(inodeBuffer);
+    
+    int i;
+    for (i = 0; i < fatherInode.getNextItemOffset(); i += DirEnt.DIR_ENT_META_SIZE) {
+      flatFS.read(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+      dirEnt = DirEnt.parseDirEnt(dirEntBuffer);
+      assert dirEnt.isValid();
+      byte[] dirEntNameBuffer = new byte[dirEnt.getNameLength()];
+      flatFS.read(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), dirEntNameBuffer);
+      if (Common.byteArr2String(dirEntNameBuffer).equals(filename)) {
+        break;
+      }
+    }
+
+    if (i == fatherInode.getNextItemOffset()) {
+      return inumber;
+    }
+    inumber = dirEnt.getInum();
+
+    // 更新父目录
+    if (i < fatherInode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE) {
+      Common.debugPrintln(fatherInode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE);
+      flatFS.read(xid, fatherInumber, fatherInode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+      flatFS.write(xid, fatherInumber, i, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+    }
+    if (fatherInode.getHeapOffset() < dirEnt.getNameOffset()) {
+      byte[] zeroBuffer = new byte[dirEnt.getNameLength()];
+      flatFS.write(xid, fatherInumber, dirEnt.getNameOffset(), dirEnt.getNameLength(), zeroBuffer);
+    } else {
+      fatherInode.setHeapOffset(fatherInode.getHeapOffset() + dirEnt.getNameLength());
+    }
+    fatherInode.setNextItemOffset(fatherInode.getNextItemOffset() - DirEnt.DIR_ENT_META_SIZE);
+    fatherInode.writeInode(inodeBuffer);
+    flatFS.writeFileMetadata(xid, fatherInumber, inodeBuffer);
+
+    return inumber;
+  }
+
+  private void addDirEnt(TransID xid, int fatherInumber, String filename, int inumber)
+  throws IOException, IllegalArgumentException
+  {
+    byte[] fatherInodeBuffer = new byte[flatFS.getParam(FlatFS.ASK_FILE_METADATA_SIZE)];
+    byte[] dirEntBuffer = new byte[DirEnt.DIR_ENT_META_SIZE];
+    byte[] temp = new byte[DirEnt.DIR_ENT_META_SIZE];
+    DirEnt dirEnt = null;
+
+    flatFS.readFileMetadata(xid, fatherInumber, fatherInodeBuffer);
+    RFSInode fatherInode = RFSInode.parseInode(fatherInodeBuffer);
+    int nameOffset = fatherInode.getHeapOffset() - filename.length();
+    int nameLength = filename.length();
+
+    flatFS.read(xid, fatherInumber, 0, DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+    dirEnt = DirEnt.parseDirEnt(dirEntBuffer);
+    assert dirEnt.isValid();
+
+    dirEnt = new DirEnt(true, inumber, nameOffset, nameLength);
+    dirEnt.writeDirEnt(dirEntBuffer);
+
+    flatFS.write(xid, fatherInumber, nameOffset, nameLength, Common.String2byteArr(filename));
+    flatFS.write(xid, fatherInumber, fatherInode.getNextItemOffset(), DirEnt.DIR_ENT_META_SIZE, dirEntBuffer);
+    
+    fatherInode.setHeapOffset(nameOffset);
+    fatherInode.setNextItemOffset(fatherInode.getNextItemOffset() + DirEnt.DIR_ENT_META_SIZE);
+
+    fatherInode.writeInode(fatherInodeBuffer);
+    flatFS.writeFileMetadata(xid, fatherInumber, fatherInodeBuffer);
+  }
+
+  private String[] parseFilename(String filename) 
+  throws IllegalArgumentException
+  {
     String[] pathItems = filename.split("/");
 
     int n = 0;
     for (int i = 0; i < pathItems.length; ++i) {
       if (!pathItems[i].isEmpty()) {
         ++n;
+      } else if (pathItems[i].length() > Common.FS_MAX_NAME) {
+        throw new IllegalArgumentException("Bad filename");
       }
     }
 

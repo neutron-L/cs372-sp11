@@ -15,6 +15,7 @@ public class RFSTest {
         testRWSimple();
         testRWMiddle();
         testRWComplex();
+        testUnlinkRename();;
         testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
@@ -30,6 +31,7 @@ public class RFSTest {
         fd = rfs.createFile("/a.txt", false);
         assert fd == -1;
 
+        String[] result;
         fd = rfs.open("/a.txt");
         assert fd != -1 && rfs.space(fd) == 0;
         rfs.close(fd);
@@ -68,7 +70,7 @@ public class RFSTest {
             files[i] = "file" + i;
             rfs.createFile("/Downloads/temp/temp/" + files[i], false);
         }
-        String[] result = rfs.readDir("/Downloads/temp/temp");
+        result = rfs.readDir("/Downloads/temp/temp");
         assert result.length == files.length + 2;
         assert result[0].equals(".") && result[1].equals("..");
         for (int i = 0; i < files.length; ++i) {
@@ -294,6 +296,81 @@ public class RFSTest {
         System.out.println("Test 4 Passed!");
     }
 
+
+    private static void testUnlinkRename() 
+    throws IOException
+    {
+        System.out.println("Test 5: test file unlink & rename");
+
+        RFS rfs = new RFS(true);
+        int fd = -1;
+        String[] result;
+        
+        /* 删除文件 */ 
+        fd = rfs.createFile("/a.txt", false);
+        assert fd == -1;
+        rfs.unlink("/a.txt");
+        assert -1 == rfs.open("/a.txt");
+
+        String dirname = "/temp";
+        rfs.createDir(dirname);
+        result = rfs.readDir("/");
+        Common.debugPrintln(result.length);
+        for (String i : result) {
+            Common.debugPrintln(i);
+        }
+        String[] files = new String[5];
+        for (int i = 0; i < 5; ++i) {
+            files[i] = "file" + i;
+            rfs.createFile(dirname + "/" + files[i], false);
+        }
+
+        for (int i = 0; i < 5; ++i) {
+            assert -1 != (fd = rfs.open(dirname + "/" + files[i]));
+            rfs.close(fd);
+        }
+        
+        for (int i = 2; i >= 0; --i) {
+            rfs.unlink(dirname + "/" + files[i]);  
+            result = rfs.readDir(dirname);
+        }
+        for (int i = 3; i < 5; ++i) {
+            rfs.unlink(dirname + "/" + files[i]);            
+        }
+        for (int i = 0; i < 5; ++i) {
+            assert -1 == (fd = rfs.open(dirname + "/" + files[i]));
+        }
+
+        result = rfs.readDir(dirname);
+        assert result.length == 2;
+        assert result[0].equals(".") && result[1].equals("..");
+
+        /* 删除目录 */
+        rfs.unlink(dirname);
+        assert null == rfs.readDir(dirname);
+        assert 2 == rfs.readDir("/").length;
+
+        rfs.createDir("/a");
+        rfs.createDir("/a/b");
+        rfs.unlink("/a");
+        result = rfs.readDir("/a");
+        assert result != null && result.length == 3;
+        rfs.unlink("/a/b");
+        assert rfs.readDir("/a/b") == null;
+        result = rfs.readDir("/a");
+        assert result != null && result.length == 2;
+        rfs.unlink("/a");
+        result = rfs.readDir("/a");
+        assert result == null;
+
+        /* 文件重命名 */ 
+
+        rfs.close();
+        System.out.println("Test 5 Passed!");
+    }
+   
+
+
     private static void testPersistence() 
     throws IOException
     {
@@ -301,7 +378,7 @@ public class RFSTest {
         writePersistence();
 
         // 再执行该方法，检查块是否被写入持久化
-        System.out.println("Test 5: test data write-persistence-read");
+        System.out.println("Test 6: test data write-persistence-read");
 
         byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
         byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
@@ -329,7 +406,7 @@ public class RFSTest {
 
         rfs.close();
 
-        System.out.println("Test 5 Passed!");
+        System.out.println("Test 6 Passed!");
     }
 
     private static void writePersistence() 
@@ -357,6 +434,5 @@ public class RFSTest {
         rfs.close();
     }
 
-   
-   
+    
 }
