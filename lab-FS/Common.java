@@ -3,6 +3,9 @@
  * This file represents the constants and basic data struct to your 
  * file system.
  */
+
+import java.io.UnsupportedEncodingException;
+
 public class Common {
 
   public static final int ADISK_REDO_LOG_SECTORS = 1024;
@@ -66,6 +69,48 @@ public class Common {
       b[ii] = value;
     }
     return;
+  }
+
+  // 使用utf-8字符集
+  public static String byteArr2String(byte[] bytes) {
+    if (bytes == null) {
+      return null;
+    }
+    int endIndex = 0;
+    // 查找空字符的位置
+    for (; endIndex < bytes.length; endIndex++) {
+        if (bytes[endIndex] == '\0') {
+            break;
+        }
+    }
+    String str = null;
+    try {
+        // 截取空字符之前的字节数组部分并转换为字符串
+        str = new String(bytes, 0, endIndex, "UTF-8");
+    } catch (UnsupportedEncodingException e) {
+        e.printStackTrace();
+        return null;
+    }
+    return str;
+  }
+
+  // 使用utf-8字符集
+  public static byte[] String2byteArr(String str) {
+    byte[] bytes = null;
+
+    if (str == null) {
+      return bytes;
+    }
+    
+    try {
+        // 指定 UTF-8 字符集将字节数组转换为字符串
+        bytes = str.getBytes("UTF-8"); 
+    } catch (UnsupportedEncodingException e) {
+        e.printStackTrace();
+        return null;
+    } 
+
+    return bytes;
   }
 
 }

@@ -9,11 +9,9 @@ public class PTreeTest {
   // main() -- PTree test
   //-------------------------------------------------------
    public static void main(String[] args) throws Exception {
-        // testTree();
-        // testRWSimple();
-        // testRWMiddle();
-        // writePersistence();
-        System.out.println("All writes done!");
+        testTree();
+        testRWSimple();
+        testRWMiddle();
         testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
@@ -77,7 +75,7 @@ public class PTreeTest {
         assert Arrays.equals(readBuffer, writeBuffer);
         usedBlocks = ptree.checkUsedBlocks(xid);
         assert 1 == usedBlocks && totFreeSpace - usedBlocks * PTree.BLOCK_SIZE_BYTES == ptree.getParam(PTree.ASK_FREE_SPACE);
-
+        assert blockId == ptree.getMaxDataBlockId(xid, tnum1) && 1 == ptree.getDataBlockCount(xid, tnum1);
 
         /* 读写一个indirect未分配块 */ 
         blockId = PTree.TNODE_DIRECT;
@@ -90,6 +88,7 @@ public class PTreeTest {
         assert Arrays.equals(readBuffer, writeBuffer);
         usedBlocks = ptree.checkUsedBlocks(xid);
         assert 3 == usedBlocks && totFreeSpace - usedBlocks * PTree.BLOCK_SIZE_BYTES == ptree.getParam(PTree.ASK_FREE_SPACE);
+        assert blockId == ptree.getMaxDataBlockId(xid, tnum1) && 2 == ptree.getDataBlockCount(xid, tnum1);
 
         /* 读写一个double indirect未分配块 */ 
         blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE;
@@ -102,6 +101,7 @@ public class PTreeTest {
         assert Arrays.equals(readBuffer, writeBuffer);
         usedBlocks = ptree.checkUsedBlocks(xid);
         assert 6 == usedBlocks && totFreeSpace - usedBlocks * PTree.BLOCK_SIZE_BYTES == ptree.getParam(PTree.ASK_FREE_SPACE);
+        assert blockId == ptree.getMaxDataBlockId(xid, tnum1) && 3 == ptree.getDataBlockCount(xid, tnum1);
 
          /* 再读写一个indirect未分配块 */ 
         blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE - 1;
@@ -114,6 +114,7 @@ public class PTreeTest {
         assert Arrays.equals(readBuffer, writeBuffer);
         usedBlocks = ptree.checkUsedBlocks(xid);
         assert 7 == usedBlocks && totFreeSpace - usedBlocks * PTree.BLOCK_SIZE_BYTES == ptree.getParam(PTree.ASK_FREE_SPACE);
+        assert PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE == ptree.getMaxDataBlockId(xid, tnum1) && 4 == ptree.getDataBlockCount(xid, tnum1);
 
         /* 再读写一个double indirect未分配块，其和之前那个块在同一个间接目录 */ 
         blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE +  PTree.POINTERS_PER_INTERNAL_NODE - 1;
@@ -126,6 +127,7 @@ public class PTreeTest {
         assert Arrays.equals(readBuffer, writeBuffer);
         usedBlocks = ptree.checkUsedBlocks(xid);
         assert 8 == usedBlocks && totFreeSpace - usedBlocks * PTree.BLOCK_SIZE_BYTES == ptree.getParam(PTree.ASK_FREE_SPACE);
+        assert blockId == ptree.getMaxDataBlockId(xid, tnum1) && 5 == ptree.getDataBlockCount(xid, tnum1);
 
         /* 再读写一个double indirect未分配块，其和之前那个块在不同间接目录 */ 
         blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE;
@@ -138,6 +140,7 @@ public class PTreeTest {
         assert Arrays.equals(readBuffer, writeBuffer);
         usedBlocks = ptree.checkUsedBlocks(xid);
         assert 10 == usedBlocks && totFreeSpace - usedBlocks * PTree.BLOCK_SIZE_BYTES == ptree.getParam(PTree.ASK_FREE_SPACE);
+        assert blockId == ptree.getMaxDataBlockId(xid, tnum1) && 6 == ptree.getDataBlockCount(xid, tnum1);
 
         /* 再读写一个double indirect未分配块，其和刚刚那个块在相同间接目录 */ 
         blockId = PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2;
@@ -150,6 +153,7 @@ public class PTreeTest {
         assert Arrays.equals(readBuffer, writeBuffer);
         usedBlocks = ptree.checkUsedBlocks(xid);
         assert 11 == usedBlocks && totFreeSpace - usedBlocks * PTree.BLOCK_SIZE_BYTES == ptree.getParam(PTree.ASK_FREE_SPACE);
+        assert blockId == ptree.getMaxDataBlockId(xid, tnum1) && 7 == ptree.getDataBlockCount(xid, tnum1);
 
         assert totFreeTrees - 1 == ptree.getParam(PTree.ASK_FREE_TREES);
 
@@ -273,6 +277,7 @@ public class PTreeTest {
     throws IOException
     {
         // 先执行writePersistence（修改版）
+        writePersistence();
         // 再执行该方法，检查块是否被写入持久化
         System.out.println("Test 4: test data write-persistence-read");
 

@@ -6,36 +6,83 @@ import java.util.Arrays;
 import java.util.LinkedList;
 
 
-public class FlatFSTest {
+public class RFSTest {
   //-------------------------------------------------------
-  // main() -- FlatFS test
+  // main() -- RFS test
   //-------------------------------------------------------
    public static void main(String[] args) throws Exception {
-        // testFlatFS();
+        // testFileOpenClose();
         // testRWSimple();
-        testRWMiddle();
-        testRWComplex();
+        // testRWMiddle();
+        // testRWComplex();
+        testUnlinkRename();
         // testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
     }
+    private static void testParsefilename() 
+    {
+        System.out.println("Test 0: test filename parse");
+        System.out.println("Test 1 Passed!");
+    }
 
-    private static void testFlatFS() 
+    private static void testFileOpenClose() 
     throws IOException
     {
-        System.out.println("Test 1: test file create & delete");
-        // PTree ptree = new PTree(true);
-        FlatFS flatFS = new FlatFS(true);
+        System.out.println("Test 1: test file create & open & close");
+        RFS rfs = new RFS(true);
+        int fd = -1;
 
-        TransID xid = flatFS.beginTrans();
-        int inumber1 = flatFS.createFile(xid);
-        int inumber2 = flatFS.createFile(xid);
-        flatFS.deleteFile(xid, inumber1);
-        flatFS.deleteFile(xid, inumber2);
+        fd = rfs.createFile("/a.txt", false);
+        assert fd == -1;
 
-        flatFS.commitTrans(xid);
-        flatFS.close();
+        String[] result;
+        fd = rfs.open("/a.txt");
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
 
+        fd = rfs.createFile("/b.txt", true);
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
+
+        assert -1 == rfs.createFile("/Downloads/c.txt", true);
+
+        rfs.createDir("/Downloads");
+
+        fd = rfs.createFile("/Downloads/c.txt", true);
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
+
+        fd = rfs.createFile("/Downloads/d.txt", true);
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
+
+        fd = rfs.createFile("/Downloads/e.txt", false);
+        assert fd == -1;
+
+        assert -1 == rfs.createFile("/Downloads/temp/c.txt", true);
+
+        rfs.createDir("/Downloads/temp");
+
+        fd = rfs.createFile("/Downloads/temp/c.txt", true);
+        assert fd != -1 && rfs.space(fd) == 0;
+        rfs.close(fd);
+
+        // 在指定目录下创建一系列子目录并读取子目录名字
+        rfs.createDir("/Downloads/temp/temp");
+        String[] files = new String[5];
+        for (int i = 0; i < 5; ++i) {
+            files[i] = "file" + i;
+            rfs.createFile("/Downloads/temp/temp/" + files[i], false);
+        }
+        result = rfs.readDir("/Downloads/temp/temp");
+        assert result.length == files.length + 2;
+        assert result[0].equals(".") && result[1].equals("..");
+        for (int i = 0; i < files.length; ++i) {
+            assert result[i + 2].equals(files[i]);
+        }
+        
+        rfs.close();
         System.out.println("Test 1 Passed!");
     }
 
@@ -44,16 +91,16 @@ public class FlatFSTest {
     {
         System.out.println("Test 2: test file data read & write simple");
         
+        int fd = -1;
         int offset = 0;
         int count = 0;
         byte[] expectBuffer = new byte[10 * PTree.BLOCK_SIZE_BYTES];
         byte[] writeBuffer = new byte[10 * PTree.BLOCK_SIZE_BYTES];
         byte[] readBuffer = new byte[10 * PTree.BLOCK_SIZE_BYTES];
 
-        FlatFS flatFS = new FlatFS(true);
+        RFS rfs = new RFS(true);
+        assert (fd = rfs.createFile("/a.txt", true)) != -1;
 
-        TransID xid = flatFS.beginTrans();
-        int inumber = flatFS.createFile(xid);
 
         /* 检查方法是准备一块缓冲区，模拟期望的文件内容
           每次写入了文件的部分内容后，读取整个文件内容和
@@ -62,8 +109,8 @@ public class FlatFSTest {
         Common.setBuffer((byte)0, expectBuffer);
         offset = 0;
         count = expectBuffer.length;
-        flatFS.write(xid, inumber, offset, count, expectBuffer);
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.write(fd, offset, count, expectBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, expectBuffer);
 
         // 一个块的读写
@@ -71,21 +118,18 @@ public class FlatFSTest {
         count = PTree.BLOCK_SIZE_BYTES;
         Common.setBuffer((byte)0xab, writeBuffer, count);
         
-        flatFS.write(xid, inumber, offset, count, writeBuffer);
+        rfs.write(fd, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
-
-
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 多个块的读写
         offset = 4 * PTree.BLOCK_SIZE_BYTES;
         count = 3 * PTree.BLOCK_SIZE_BYTES;
         Common.setBuffer((byte)0xcd, writeBuffer, count);
-        flatFS.write(xid, inumber, offset, count, writeBuffer);
+        rfs.write(fd, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
-
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         /* 一个块内的读写 */ 
@@ -93,30 +137,27 @@ public class FlatFSTest {
         offset = 0;
         count = PTree.BLOCK_SIZE_BYTES / 2;
         Common.setBuffer((byte)0x10, writeBuffer, count);
-        flatFS.write(xid, inumber, offset, count, writeBuffer);
+        rfs.write(fd, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
-
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 右3/4块写
         offset = PTree.BLOCK_SIZE_BYTES / 4;
         count = PTree.BLOCK_SIZE_BYTES / 4 * 3;
         Common.setBuffer((byte)0x20, writeBuffer, count);
-        flatFS.write(xid, inumber, offset, count, writeBuffer);
+        rfs.write(fd, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
-
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 中间1/2块写
         offset = PTree.BLOCK_SIZE_BYTES;
         count = PTree.BLOCK_SIZE_BYTES / 2;
         Common.setBuffer((byte)0x30, writeBuffer, count);
-        flatFS.write(xid, inumber, offset, count, writeBuffer);
+        rfs.write(fd, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
-
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         /* 跨越块的读写 */ 
@@ -124,27 +165,25 @@ public class FlatFSTest {
         offset = 7 * PTree.BLOCK_SIZE_BYTES + PTree.BLOCK_SIZE_BYTES / 2;
         count = PTree.BLOCK_SIZE_BYTES;
         Common.setBuffer((byte)0x40, writeBuffer, count);
-        flatFS.write(xid, inumber, offset, count, writeBuffer);
+        rfs.write(fd, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
-
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 中间隔着一个块
         offset = 2 * PTree.BLOCK_SIZE_BYTES + PTree.BLOCK_SIZE_BYTES / 2;
         count = 2 * PTree.BLOCK_SIZE_BYTES;
         Common.setBuffer((byte)0x50, writeBuffer, count);
-        flatFS.write(xid, inumber, offset, count, writeBuffer);
+        rfs.write(fd, offset, count, writeBuffer);
         System.arraycopy(writeBuffer, 0, expectBuffer, offset, count);
-
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, writeBuffer);
 
         // 检查文件整体内容
         offset = 0;
         count = expectBuffer.length;
 
-        flatFS.read(xid, inumber, offset, count, readBuffer);
+        rfs.read(fd, offset, count, readBuffer);
         assert Arrays.equals(readBuffer, expectBuffer);
 
         // 写入导致文件extend
@@ -160,11 +199,11 @@ public class FlatFSTest {
         Common.setBuffer((byte)0, expect);
         Common.setBuffer((byte)0xea, extendBuffer, count);
 
-        flatFS.read(xid, inumber, base, count, expect);
+        rfs.read(fd, base, count, expect);
         System.arraycopy(extendBuffer, 0, expect, offset - base, count);
         System.arraycopy(extendBuffer, 0, expectBuffer, offset, count / 2);
 
-        flatFS.write(xid, inumber, offset, count, extendBuffer);
+        rfs.write(fd, offset, count, extendBuffer);
 
         // flatFS.read(xid, inumber, offset, count, buffer);
         // assert Arrays.equals(buffer, extendBuffer);
@@ -172,33 +211,28 @@ public class FlatFSTest {
         Common.setBuffer((byte)0xae, extendBuffer, count);
         System.arraycopy(extendBuffer, 0, expect, PTree.BLOCK_SIZE_BYTES, count);
 
-        flatFS.write(xid, inumber, 10 * PTree.BLOCK_SIZE_BYTES, count, extendBuffer);
+        rfs.write(fd, 10 * PTree.BLOCK_SIZE_BYTES, count, extendBuffer);
 
-        flatFS.read(xid, inumber, base, 2 * PTree.BLOCK_SIZE_BYTES, buffer);
+        rfs.read(fd, base, 2 * PTree.BLOCK_SIZE_BYTES, buffer);
 
         assert Arrays.equals(buffer, expect);
-        flatFS.read(xid, inumber, 0, expectBuffer.length, readBuffer);
+        rfs.read(fd, 0, expectBuffer.length, readBuffer);
         assert Arrays.equals(readBuffer, expectBuffer);
 
-        flatFS.deleteFile(xid, inumber);
-        flatFS.commitTrans(xid);
-        flatFS.close();
+        rfs.close();
 
         System.out.println("Test 2 Passed!");
     }
 
     /* 打开一个文件，在文件的最后依次写入指定长度的字符串（byte）并读取
-     * RFS的目录项的文件名称会依据这种方式存储
      */
     private static void testRWMiddle() 
     throws IOException
     {
         System.out.println("Test 3: test file data read & write middle");
-        FlatFS flatFS = new FlatFS(false);
+        RFS rfs = new RFS(true);
 
-        TransID xid = flatFS.beginTrans();
-        int inumber = flatFS.createFile(xid);
-
+        int fd = rfs.createFile("/a.txt", true);
 
         LinkedList<String> strList = new LinkedList<>();
         strList.add("afewfwaefwa11324232.txt");
@@ -206,29 +240,23 @@ public class FlatFSTest {
         strList.add("world123.txt");
         strList.add("abc.txt");
 
-        int offset = (PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE) * PTree.BLOCK_SIZE_BYTES;
+        int offset = PTree.MAX_FILE_SIZE;
 
-        for (String file : strList) {
-            byte[] buffer = Common.String2byteArr(file);
-            offset -= buffer.length;
-            flatFS.write(xid, inumber, offset, buffer.length, buffer);
-            // assert s.equals(str);
+        String content = "";
+        while (offset >= PTree.MAX_FILE_SIZE - 10 * PTree.BLOCK_SIZE_BYTES) {
+            for (String file : strList) {
+                byte[] buffer = Common.String2byteArr(file);
+                offset -= buffer.length;
+                rfs.write(fd, offset, buffer.length, buffer);
+                content = file + content;
+                // assert s.equals(str);
+            }
         }
+        byte[] buffer = new byte[PTree.MAX_FILE_SIZE - offset];
+        rfs.read(fd, offset, PTree.MAX_FILE_SIZE - offset, buffer);
+        assert Common.byteArr2String(buffer).equals(content);
 
-        // 反转链表
-        java.util.Collections.reverse(strList);
-        for (String file : strList) {
-            byte[] buffer = new byte[file.length()];
-            flatFS.read(xid, inumber, offset, file.length(), buffer);
-            assert Common.byteArr2String(buffer).equals(file);
-            offset += file.length();
-        }
-        assert offset == (PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + PTree.POINTERS_PER_INTERNAL_NODE * PTree.POINTERS_PER_INTERNAL_NODE) * PTree.BLOCK_SIZE_BYTES;
-        flatFS.deleteFile(xid, inumber);
-
-        flatFS.commitTrans(xid);
-        flatFS.close();
-
+        rfs.close();
         System.out.println("Test 3 Passed!");
     }
 
@@ -254,36 +282,165 @@ public class FlatFSTest {
             return;
         }
 
-        FlatFS flatFS = new FlatFS(false);
+        RFS rfs = new RFS(true);
+        int fd = rfs.createFile("/a.txt", true);
 
-        TransID xid = flatFS.beginTrans();
-        int inumber = flatFS.createFile(xid);
-
-        flatFS.write(xid, inumber, 0, content.length(), Common.String2byteArr(content));
+        rfs.write(fd, 0, content.length(), Common.String2byteArr(content));
 
         byte[] buffer = new byte[content.length()];
 
-        flatFS.read(xid, inumber, 0, content.length(), buffer);
+        rfs.read(fd, 0, content.length(), buffer);
 
         String readStr = Common.byteArr2String(buffer);
         // Common.debugPrintln(readStr.length(), (content).length());
         assert readStr.length() == (content).length();
         assert readStr.equals(content);
 
-        flatFS.commitTrans(xid);
-        flatFS.close();
+        rfs.close();
 
         System.out.println("Test 4 Passed!");
     }
+
+
+    private static void testUnlinkRename() 
+    throws IOException
+    {
+        System.out.println("Test 5: test file unlink & rename");
+
+        RFS rfs = new RFS(true);
+        int fd = -1;
+        String[] result;
+        
+        /* 删除文件 */ 
+        fd = rfs.createFile("/a.txt", false);
+        assert fd == -1;
+        rfs.unlink("/a.txt");
+        assert -1 == rfs.open("/a.txt");
+
+        String dirname = "/temp";
+        rfs.createDir(dirname);
+        String[] files = new String[5];
+        for (int i = 0; i < 5; ++i) {
+            files[i] = "file" + i;
+            rfs.createFile(dirname + "/" + files[i], false);
+        }
+
+        for (int i = 0; i < 5; ++i) {
+            assert -1 != (fd = rfs.open(dirname + "/" + files[i]));
+            rfs.close(fd);
+        }
+        
+        for (int i = 2; i >= 0; --i) {
+            rfs.unlink(dirname + "/" + files[i]);  
+            result = rfs.readDir(dirname);
+        }
+        for (int i = 3; i < 5; ++i) {
+            rfs.unlink(dirname + "/" + files[i]);            
+        }
+        for (int i = 0; i < 5; ++i) {
+            assert -1 == (fd = rfs.open(dirname + "/" + files[i]));
+        }
+
+        result = rfs.readDir(dirname);
+        assert result.length == 2;
+        assert result[0].equals(".") && result[1].equals("..");
+
+        /* 删除目录 */
+        rfs.unlink(dirname);
+        assert null == rfs.readDir(dirname);
+        assert 2 == rfs.readDir("/").length;
+
+        rfs.createDir("/a");
+        rfs.createDir("/a/b");
+        rfs.unlink("/a");
+        result = rfs.readDir("/a");
+        assert result != null && result.length == 3;
+        rfs.unlink("/a/b");
+        assert rfs.readDir("/a/b") == null;
+        result = rfs.readDir("/a");
+        assert result != null && result.length == 2;
+        rfs.unlink("/a");
+        result = rfs.readDir("/a");
+        assert result == null;
+
+        /* 文件重命名 */ 
+        String filename = "/a.txt";
+        String nowName = "/b.txt";
+        assert -1 == rfs.createFile(filename, false);
+        assert (fd = rfs.open(filename)) != -1; 
+        rfs.close(fd);
+
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        filename = nowName;
+        nowName = "/c.txt";
+
+        rfs.rename(filename, nowName);
+
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        filename = nowName;
+        nowName = "/temp/a.txt";
+        rfs.createDir(dirname);
+
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        filename = nowName;
+        nowName = "/temp/b.txt";
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        filename = nowName;
+        nowName = "/b.txt";
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1; 
+        assert (fd = rfs.open(nowName)) != -1; 
+        rfs.close(fd);
+
+        // 一些重命名失败场景测试，此时原文件不受影响
+        // 重命名为相同文件
+        filename = nowName;
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) != -1;
+        rfs.close(fd);
+
+        // 重命名为一个不存在的文件
+        nowName = "/noexist";
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1;
+
+        // 重命名为一个存在的文件
+        assert -1 != (fd = rfs.createFile("/exist", true));
+        rfs.close(fd);
+
+        nowName = "/exist";
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1;
+
+        rfs.close();
+        System.out.println("Test 5 Passed!");
+    }
+   
+
 
     private static void testPersistence() 
     throws IOException
     {
         // 先执行writePersistence
-        // writePersistence();
+        writePersistence();
 
         // 再执行该方法，检查块是否被写入持久化
-        System.out.println("Test 5: test data write-persistence-read");
+        System.out.println("Test 6: test data write-persistence-read");
 
         byte[] writeBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
         byte[] readBuffer = new byte[PTree.BLOCK_SIZE_BYTES];
@@ -299,22 +456,19 @@ public class FlatFSTest {
         blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE); // 写一个double indirect未分配块，其和之前那个块在不同间接目录
         blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2); // 写一个double indirect未分配块，其和刚刚那个块在相同间接目录
 
-        FlatFS flatFS = new FlatFS(false);
-
-        TransID xid = flatFS.beginTrans();
-        // int inumber = flatFS.createFile(xid);
-        int inumber = 0;
+        RFS rfs = new RFS(false);
+        int fd = rfs.open("/a.txt");
+        assert fd != -1;
 
         for (int blockId : blockIds) {
-            flatFS.read(xid, inumber, blockId * PTree.BLOCK_SIZE_BYTES, PTree.BLOCK_SIZE_BYTES, readBuffer);
+            rfs.read(fd, blockId * PTree.BLOCK_SIZE_BYTES, PTree.BLOCK_SIZE_BYTES, readBuffer);
             Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
             assert Arrays.equals(readBuffer, writeBuffer);
         }
 
-        flatFS.commitTrans(xid);
-        flatFS.close();
+        rfs.close();
 
-        System.out.println("Test 5 Passed!");
+        System.out.println("Test 6 Passed!");
     }
 
     private static void writePersistence() 
@@ -332,20 +486,15 @@ public class FlatFSTest {
         blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE); // 写一个double indirect未分配块，其和之前那个块在不同间接目录
         blockIds.add(PTree.TNODE_DIRECT + PTree.POINTERS_PER_INTERNAL_NODE + 2 * PTree.POINTERS_PER_INTERNAL_NODE + 2); // 写一个double indirect未分配块，其和刚刚那个块在相同间接目录
 
-        FlatFS flatFS = new FlatFS(true);
-
-        TransID xid = flatFS.beginTrans();
-        int inumber = flatFS.createFile(xid);
-
+        RFS rfs = new RFS(true);
+        int fd = rfs.createFile("/a.txt", true);
         for (int blockId : blockIds) {
             Common.setBuffer((byte)(blockId & 0xFF), writeBuffer);
-            flatFS.write(xid, inumber, blockId * PTree.BLOCK_SIZE_BYTES, PTree.BLOCK_SIZE_BYTES, writeBuffer);
+            rfs.write(fd, blockId * PTree.BLOCK_SIZE_BYTES, PTree.BLOCK_SIZE_BYTES, writeBuffer);
         }
-
-        flatFS.commitTrans(xid);
-        flatFS.close();
+        rfs.close(fd);
+        rfs.close();
     }
 
-   
-   
+    
 }
