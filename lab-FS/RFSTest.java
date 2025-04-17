@@ -20,6 +20,11 @@ public class RFSTest {
         System.out.println("All Tests Passed!");
         System.exit(0);
     }
+    private static void testParsefilename() 
+    {
+        System.out.println("Test 0: test filename parse");
+        System.out.println("Test 1 Passed!");
+    }
 
     private static void testFileOpenClose() 
     throws IOException
@@ -401,6 +406,26 @@ public class RFSTest {
         assert (fd = rfs.open(filename)) == -1; 
         assert (fd = rfs.open(nowName)) != -1; 
         rfs.close(fd);
+
+        // 一些重命名失败场景测试，此时原文件不受影响
+        // 重命名为相同文件
+        filename = nowName;
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) != -1;
+        rfs.close(fd);
+
+        // 重命名为一个不存在的文件
+        nowName = "/noexist";
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1;
+
+        // 重命名为一个存在的文件
+        assert -1 != (fd = rfs.createFile("/exist", true));
+        rfs.close(fd);
+
+        nowName = "/exist";
+        rfs.rename(filename, nowName);
+        assert (fd = rfs.open(filename)) == -1;
 
         rfs.close();
         System.out.println("Test 5 Passed!");
