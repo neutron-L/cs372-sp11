@@ -8,6 +8,7 @@
  *
  */
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Stack;
 import java.io.EOFException;
 public class RFS implements AutoCloseable {
@@ -45,8 +46,9 @@ public class RFS implements AutoCloseable {
       if (fd != -1) {
         openFiles[fd] = new File(xid, inumber);
       } 
-    } 
-    flatFS.commitTrans(xid);
+    } else {
+      flatFS.commitTrans(xid);
+    }
     return fd;
   }
 
@@ -125,6 +127,10 @@ public class RFS implements AutoCloseable {
 
     String[] oldPathItems = parseFilename(oldName);
     String[] newPathItems = parseFilename(newName);
+
+    if (Arrays.equals(oldPathItems, newPathItems)) {
+      return;
+    }
 
     String formerName = oldPathItems[oldPathItems.length - 1];
     String nowName = newPathItems[newPathItems.length - 1];
@@ -596,7 +602,7 @@ public class RFS implements AutoCloseable {
  throws IllegalArgumentException 
  {
     if (filename == null) {
-        throw new IllegalArgumentException("Filename cannot be null");
+        throw new IllegalArgumentException("Filename bad");
     }
 
     // 使用 '/' 分割路径
@@ -612,14 +618,12 @@ public class RFS implements AutoCloseable {
             // 处理 ".."，如果栈不为空则弹出
             if (!stack.isEmpty()) {
                 stack.pop();
-            } else {
-                // 如果遇到 ".." 时栈已经为空，可以选择保留 ".." 或忽略
-                // 这里选择将其压入栈中以保留路径信息
-                stack.push(item);
-            }
+            } 
+        } else if (item.length() > Common.FS_MAX_NAME) {
+            throw new IllegalArgumentException("Bad filename");
         } else {
-            // 添加普通目录或文件名到栈中
-            stack.push(item);
+          // 添加普通目录或文件名到栈中
+          stack.push(item);
         }
     }
 
@@ -630,10 +634,11 @@ public class RFS implements AutoCloseable {
 
     // 将栈中的元素转换为数组
     String[] result = new String[stack.size()];
-    for (int i = stack.size() - 1, j = 0; i >= 0; i--, j++) {
-        result[j] = stack.pop();
+    int i = stack.size() - 1;
+    while (!stack.empty()) {
+      result[i] = stack.pop();
+      --i;
     }
-
     return result;
 }
 
