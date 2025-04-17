@@ -109,14 +109,8 @@ public class ADisk implements AutoCloseable {
         lock.lock();
         done = writeBackList.getNextWriteback() == null;
         lock.unlock();
-<<<<<<< HEAD
-        Common.debugPrintln("done", done);
-      }
-      
-=======
       }
       assert writeBackList.getNextWriteback() == null;
->>>>>>> rfs
     } catch (Exception e) {
       e.printStackTrace();
     }
