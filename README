@@ -1,2 +1,8 @@
-# CS372 Introduction to Operating Systems, Spring 2011, utexas
-# link: https://www.cs.utexas.edu/users/dahlin/Classes/UGOS/
+## Intrudoction
+ CS372 Introduction to Operating Systems, Spring 2011, utexas
+ link: https://www.cs.utexas.edu/users/dahlin/Classes/UGOS/
+
+## TODO
+  目前实现的部分包括用户态线程库、多线程实验和一个日志文件系统，日志文件系统中支持目录的部分是选做的（已完成）。还有一些可以扩展的部分。
+  1. ult目前只利用单核，可以扩展到利用多核功能，实现m:n多对多的架构。可以在每个cpu核心上运行一个scheduler线程并配置一个per-cpu的就绪队列。
+  2. 日志文件系统的adisk部分是支持多线程的，可以同时支持多个活跃事务。但PTree以及其之上的文件系统不支持多个活跃事务。对于flatfs，可以为每个inode配置一个锁。对于rfs，每次操作文件时逐层目录获取锁并在关闭时提交事务之前释放锁(2PL)。锁的结构可以存储在内存中。
