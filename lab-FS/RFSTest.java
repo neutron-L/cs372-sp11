@@ -11,12 +11,12 @@ public class RFSTest {
   // main() -- RFS test
   //-------------------------------------------------------
    public static void main(String[] args) throws Exception {
-        // testFileOpenClose();
-        // testRWSimple();
-        // testRWMiddle();
-        // testRWComplex();
+        testFileOpenClose();
+        testRWSimple();
+        testRWMiddle();
+        testRWComplex();
         testUnlinkRename();
-        // testPersistence();
+        testPersistence();
         System.out.println("All Tests Passed!");
         System.exit(0);
     }

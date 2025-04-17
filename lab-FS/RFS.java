@@ -329,7 +329,6 @@ public class RFS implements AutoCloseable {
     // 创建两个特殊条目.和..
     initDir(xid, iroot, iroot);
     flatFS.commitTrans(xid);
-    openFiles[iroot] = new File(xid, iroot);
   }
 
   private void checkFilename(String filename) 
@@ -350,7 +349,6 @@ public class RFS implements AutoCloseable {
   }
 
   private void putDescriptor(int fd) {
-    checkFd(fd);
     openFiles[fd] = null;
   }
 
@@ -652,8 +650,21 @@ public class RFS implements AutoCloseable {
   
 
   @Override
-  public void close() {
-    flatFS.close();
+  public void close() 
+  {
+    try {
+    // 关闭所有没有关闭的文件描述符
+    for (int i = 0; i < openFiles.length; ++i) {
+      if (openFiles[i] != null) {
+        close(i);
+      }
+    }
+    } catch (Exception e) {
+      e.printStackTrace();
+    } finally {
+      flatFS.close();
+    }
+    
   }
 
 }
