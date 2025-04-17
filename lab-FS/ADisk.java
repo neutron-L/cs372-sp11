@@ -254,7 +254,7 @@ public class ADisk implements AutoCloseable {
 
       writeBackCond.signal();
 
-      Common.debugPrintln("trans seq: ", transaction.getCommittedSeq(), " log start: ", transaction.recallLogSectorStart());
+      // Common.debugPrintln("trans seq: ", transaction.getCommittedSeq(), " log start: ", transaction.recallLogSectorStart());
 
       // 批次更新head
     } catch (Exception e) {
@@ -409,7 +409,7 @@ public class ADisk implements AutoCloseable {
     Vector<Integer> tags = new Vector<>();
     byte[] logStatusBuffer = new byte[Disk.SECTOR_SIZE];
     
-    Common.debugPrintln("Write back start");
+    // Common.debugPrintln("Write back start");
     while (true) {
       try {
           lock.lock();
@@ -419,7 +419,7 @@ public class ADisk implements AutoCloseable {
           }
           if (shutdown.get() == true) {
             if (transaction != null) {
-              Common.debugPrintln("No write back", transaction.recallLogSectorStart(), "seq", transaction.getCommittedSeq());
+              // Common.debugPrintln("No write back", transaction.recallLogSectorStart(), "seq", transaction.getCommittedSeq());
             }
             break;
           }
@@ -444,7 +444,7 @@ public class ADisk implements AutoCloseable {
           logStatus.writeLogStatus(logStatusBuffer);
           disk.startRequest(Disk.WRITE, 0, LOG_STATUS_SECTOR_NUMBER, logStatusBuffer);
           callbackTracker.waitForTag(0); // 等待以保证更新顺序
-          Common.debugPrintln("Write back", transaction.recallLogSectorStart(), "seq", transaction.getCommittedSeq());
+          // Common.debugPrintln("Write back", transaction.recallLogSectorStart(), "seq", transaction.getCommittedSeq());
           writeBackList.removeNextWriteback();
         } catch (Exception e) {
           e.printStackTrace();
@@ -452,7 +452,7 @@ public class ADisk implements AutoCloseable {
           lock.unlock();
         }
       }
-      Common.debugPrintln("write back thread exit");
+      // Common.debugPrintln("write back thread exit");
   }
 
   // 希望构造具有一定意义的tag
